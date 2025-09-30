@@ -50,6 +50,7 @@ jobs:
           DB_PASSWORD: fintech
           PROCESSOR_API_BASE_URL: https://dummyjson.com
           INTERNAL_API_BASE_URL: https://jsonplaceholder.typicode.com
+          PYTHONPATH: ${{ github.workspace }}/src
         run: pytest tests/ -v
 
   docker:
