@@ -1,0 +1,39 @@
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: fintech-db
+    environment:
+      POSTGRES_USER: fintech
+      POSTGRES_PASSWORD: fintech
+      POSTGRES_DB: fintech_reconciliation
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./setup.sql:/docker-entrypoint-initdb.d/setup.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fintech -d fintech_reconciliation"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: fintech-app
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: fintech_reconciliation
+      DB_USER: fintech
+      DB_PASSWORD: fintech
+      PROCESSOR_API_BASE_URL: https://dummyjson.com
+      INTERNAL_API_BASE_URL: https://jsonplaceholder.typicode.com
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./local_reports:/app/local_reports
+
+volumes:
+  db_data:

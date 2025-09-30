@@ -24,7 +24,7 @@ class ReconciliationEngine:
     """Compares transaction lists and identifies discrepancies using O(1) lookup complexity."""
 
     def __init__(self) -> None:
-        pass # Initialization is minimal, relies on input data being clean
+        pass  # Initialization is minimal, relies on input data being clean
 
     @staticmethod
     def _build_index(transactions: List[Transaction]) -> Dict[str, Transaction]:
@@ -45,7 +45,6 @@ class ReconciliationEngine:
             index[t.transaction_id] = t
         return index
 
-    # --- MINOR FIX: Return type is the full ReconciliationResult container ---
     def reconcile(
         self,
         processor_transactions: List[Transaction],
@@ -53,48 +52,53 @@ class ReconciliationEngine:
         run_date: date,
         processor: str,
     ) -> ReconciliationResult:
-        """Perform reconciliation between processor and internal records."""
+        """Perform reconciliation between processor and internal records, handling duplicates properly."""
 
-        # O(N) operation: build lookup indexes for both data sources
+        # --- Deduplicate transactions by transaction_id ---
         proc_index = self._build_index(processor_transactions)
         int_index = self._build_index(internal_transactions)
-        
+
+        # Convert deduplicated processor transactions to a list for calculations
+        unique_proc_txns = list(proc_index.values())
+
         missing_details: List[Transaction] = []
 
-        # O(1) Lookup Loop: Iterate through processor data and check for existence in internal index
+        # Check for missing transactions in internal records
         for tid, p_txn in proc_index.items():
             if tid not in int_index:
                 missing_details.append(p_txn)
-                logger.debug("Missing transaction found", transaction_id=tid)
+                logger.debug("Missing transaction found: %s", tid)
 
-        # --- CRITICAL FIX: Sum Decimals directly without round() ---
-        # The sum() function over Decimals maintains precision. We avoid round() to prevent float conversion.
+        # --- Financial Calculations ---
         total_discrepancy: Decimal = sum(t.amount for t in missing_details)
-        
-        # 1. Create Summary Model
+        total_volume: Decimal = sum(t.amount for t in unique_proc_txns)
+
+        # --- Build Summary ---
         summary = ReconciliationSummary(
-            date=run_date,
+            reconciliation_date=run_date,
             processor=processor,
-            processor_transactions=len(processor_transactions),
-            internal_transactions=len(internal_transactions),
+            processor_transactions=len(unique_proc_txns),  # Only unique transactions
+            internal_transactions=len(int_index),          # Only unique internal transactions
             missing_transactions_count=len(missing_details),
             total_discrepancy_amount=total_discrepancy,
+            total_volume_processed=total_volume,
         )
-        
-        # 2. Create Final Result Model
+
+        # --- Build Result ---
         result = ReconciliationResult(
-            date=run_date,
+            reconciliation_date=run_date,
             processor=processor,
             summary=summary,
-            missing_transactions_details=missing_details # Contains the full list of missing transactions
+            missing_transactions_details=missing_details
         )
 
         logger.info(
-            "Reconciliation complete: %d missing of %d processor transactions (%s total discrepancy)",
+            "Reconciliation complete: %d missing of %d processor transactions "
+            "(Total Volume: %s, Discrepancy: %s)",
             len(missing_details),
-            len(processor_transactions),
-            total_discrepancy, # Logging the Decimal value is correct
+            len(unique_proc_txns),
+            total_volume,
+            total_discrepancy,
         )
-        
-        # Return the full container
+
         return result

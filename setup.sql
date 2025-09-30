@@ -300,9 +300,8 @@ $$ LANGUAGE plpgsql;
 
 -- Apply validation trigger
 CREATE TRIGGER validate_reconciliation_totals_trigger
-    BEFORE UPDATE ON reconciliation_runs
+    AFTER UPDATE ON reconciliation_runs
     FOR EACH ROW EXECUTE FUNCTION validate_reconciliation_totals();
-
 -- ==================================================
 -- VIEWS FOR COMMON QUERIES
 -- ==================================================

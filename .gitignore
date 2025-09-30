@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+local_reports/
+venv/
+env/
+.pytest_cache/
+coverage.xml
+.coverage
+htmlcov/
+*.log
+.DS_Store
+db_data/
