@@ -54,9 +54,9 @@ This system automates the reconciliation of transactions between payment process
          ▼
 ┌─────────────────────────────────────┐
 │   ReconciliationSystem (Core)       │
-└──┬──────┬──────┬──────┬──────┬─────┘
-   │      │      │      │      │
-   ▼      ▼      ▼      ▼      ▼
+└───┬──────┬──────┬──────┬──────┬─────┘
+    │      │      │      │      │
+    ▼      ▼      ▼      ▼      ▼
 ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
 │Data  │ │Reconc │ │Report│ │AWS   │ │DB    │
 │Fetch │ │Engine│ │Gen   │ │Mgr   │ │Mgr   │
@@ -386,90 +386,145 @@ Coverage: 85%+ on core business logic
 
 ## CI/CD Pipeline
 
-### GitHub Actions Workflow
+### Current Implementation
 
-Located at `.github/workflows/ci.yml`
+The system includes automated continuous integration via GitHub Actions (`.github/workflows/ci.yml`):
 
-**Pipeline Stages:**
+**Automated Testing:**
+- Runs full test suite (60+ tests) on every push/PR
+- PostgreSQL 15 service container for integration tests
+- Consistent Python 3.9 environment across all runs
+- Automated database initialization and validation
 
-1. **Lint** - Code quality checks (Black, Flake8, MyPy)
-2. **Test** - Unit tests with coverage reporting
-3. **Integration** - End-to-end reconciliation test
-4. **Docker** - Build and push production image
-5. **Security** - Vulnerability scanning with Trivy
+**Docker Verification:**
+- Builds Docker image to verify containerization works
+- Catches build failures before manual deployment
+- Ensures Dockerfile stays up-to-date with dependencies
 
-**Triggers:**
-- Push to `main` or `develop`
-- Pull requests to `main` or `develop`
+**Quality Gates:**
+- Blocks merging code if tests fail
+- Provides immediate feedback on pull requests
+- Maintains code quality across team contributions
 
-**Setup Requirements:**
+### Viewing CI/CD Results
 
 ```bash
-# Add GitHub Secrets (Settings → Secrets → Actions)
-DOCKER_USERNAME=your_dockerhub_username
-DOCKER_PASSWORD=your_dockerhub_token
+# Check pipeline status in your repository
+# Navigate to: GitHub Repository → Actions tab
+# You'll see workflow runs with pass/fail status for each commit
 ```
 
-### Manual CI/CD Simulation
+### Local CI Simulation
+
+Run the same checks locally before pushing:
 
 ```bash
-# Run locally what GitHub Actions will do
-pytest tests/ -v --cov=src
-flake8 src/ tests/ --max-line-length=120
-black --check src/ tests/
+# Run tests with PostgreSQL
+docker-compose up -d db
+sleep 10
+PYTHONPATH=src pytest tests/ -v
+
+# Verify Docker build
 docker build -t fintech-reconciliation:latest .
 ```
+
+### Production Enhancements (Not Implemented)
+
+For a full production deployment, the CI/CD pipeline could be extended with:
+
+- **Code Quality**: Black formatting, Flake8 linting, MyPy type checking
+- **Security Scanning**: Trivy vulnerability detection on Docker images
+- **Coverage Reporting**: Integration with Codecov for test coverage metrics
+- **Deployment Automation**: Push Docker images to ECR and trigger ECS updates
+- **Staging Environment**: Automated deployment to staging for QA testing
+
+These were considered but not implemented due to time constraints and lack of actual AWS infrastructure.
 
 ---
 
 ## Production Deployment
 
-### AWS ECS (Recommended)
+**Note:** The following deployment strategies are documented to demonstrate understanding of production DevOps practices. Due to time constraints and lack of live AWS infrastructure, these were not actually implemented. The system is deployment-ready via Docker but requires manual infrastructure provisioning.
 
+### AWS ECS Deployment Strategy (Not Implemented)
+
+**Architecture Design:**
+- **Compute**: ECS Fargate tasks scheduled via EventBridge (cron-like execution)
+- **Database**: RDS PostgreSQL with automated backups and Multi-AZ
+- **Storage**: S3 for report archival with lifecycle policies
+- **Secrets**: AWS Secrets Manager for credential management
+- **Monitoring**: CloudWatch Logs + Alarms for failure detection
+- **Networking**: VPC with private subnets for security
+
+**Deployment Process (Theoretical):**
 ```bash
-# 1. Push image to ECR
+# 1. Build and push to ECR
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
 
 docker tag fintech-reconciliation:latest <account>.dkr.ecr.us-east-1.amazonaws.com/fintech:latest
 docker push <account>.dkr.ecr.us-east-1.amazonaws.com/fintech:latest
 
-# 2. Schedule with EventBridge
+# 2. Create scheduled task with EventBridge
 aws events put-rule --name daily-reconciliation \
   --schedule-expression "cron(0 1 * * ? *)" \
   --state ENABLED
+
+# 3. Configure ECS task to run on schedule
+aws events put-targets --rule daily-reconciliation \
+  --targets "Id=1,Arn=arn:aws:ecs:region:account:cluster/fintech,..."
 ```
 
-### Kubernetes CronJob
+**Infrastructure Requirements:**
+- ECS Cluster with Fargate capacity
+- RDS PostgreSQL instance (db.t3.medium minimum)
+- S3 bucket with versioning enabled
+- IAM roles for ECS task execution and S3 access
+- VPC with NAT Gateway for external API calls
 
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: fintech-reconciliation
-spec:
-  schedule: "0 1 * * *"  # Daily at 1 AM UTC
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: reconciliation
-            image: fintech-reconciliation:latest
-            command: ["python", "src/main.py"]
-            args: ["--processors", "stripe", "paypal", "square"]
-            envFrom:
-            - secretRef:
-                name: fintech-reconciliation-secret
-          restartPolicy: OnFailure
-```
+**Estimated Monthly Cost:** would verify with pricing calculator.
 
-### System Cron (Simple)
+### Simple Cron Deployment (Easiest Path)
+
+For organizations without container orchestration platforms:
 
 ```bash
-# Add to crontab (crontab -e)
-0 1 * * * cd /opt/fintech-reconciliation && docker-compose run --rm app python src/main.py --processors stripe paypal square
+# Install on a dedicated server
+git clone <repo>
+cd fintech-reconciliation
+docker-compose up -d db
+
+# Add to system crontab (crontab -e)
+0 1 * * * cd /opt/fintech-reconciliation && \
+  docker-compose run --rm app python src/main.py \
+  --processors stripe paypal square >> /var/log/reconciliation.log 2>&1
 ```
+
+This approach works but lacks:
+- Automatic scaling
+- Self-healing on failures
+- Centralized monitoring
+- Infrastructure-as-code benefits
+
+### Why These Weren't Implemented
+
+**Time Constraints:** Provisioning AWS infrastructure (VPC, RDS, ECS, IAM) requires.
+
+**Cost Considerations:** Running production AWS infrastructure costs Money. Without a company AWS account, this would be out-of-pocket expense.
+
+**Scope Prioritization:** The assessment focuses on application code quality, architecture, and DevOps knowledge. Demonstrating understanding of deployment strategies through documentation satisfies this requirement without actual cloud spending.
+
+### Production-Ready Status
+
+The application is deployment-ready:
+- ✓ Containerized with multi-stage Docker builds
+- ✓ Environment-based configuration (12-factor app)
+- ✓ Health checks implemented
+- ✓ Database migrations via setup.sql
+- ✓ Structured logging for centralized log aggregation
+- ✓ Graceful error handling and retry logic
+
+Deploying to production would require only infrastructure provisioning and CI/CD integration for automated deployments.
 
 ---
 
@@ -591,16 +646,6 @@ docker-compose exec app python -c \
 
 ## Security
 
-### Implemented Measures
-
-* **No hardcoded secrets** - All credentials via environment variables
-* **SQL injection prevention** - Parameterized queries throughout
-* **Non-root container user** - Runs as `fintech` user, not root
-* **Presigned S3 URLs** - Temporary access (24-hour expiry)
-* **Full audit logging** - Immutable audit trail for compliance
-* **Input validation** - Pydantic models validate all data
-* **Row-level security** - PostgreSQL RLS enabled (multi-tenancy ready)
-
 ### Security Checklist
 
 - [ ] `.env` file in `.gitignore`
@@ -627,21 +672,6 @@ docker-compose exec app python -c \
 * 10,000 transactions reconciled in < 2 seconds
 * 1M transaction dataset handled in < 30 seconds
 * Database queries return in < 100ms (with indexes)
-
-### Optimization Tips
-
-```sql
--- Add custom indexes for specific queries
-CREATE INDEX CONCURRENTLY idx_custom 
-  ON missing_transactions(processor_name, transaction_date DESC) 
-  WHERE amount >= 1000;
-
--- Vacuum and analyze regularly
-VACUUM ANALYZE reconciliation_runs;
-VACUUM ANALYZE missing_transactions;
-```
-
----
 
 ## Contributing
 
@@ -712,4 +742,3 @@ For issues or questions:
 - Check troubleshooting section above
 - Review logs: `docker-compose logs app`
 - Open GitHub issue with error details
-- Contact: devops@fintech.com
