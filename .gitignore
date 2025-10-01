@@ -2,8 +2,8 @@ __pycache__/
 *.pyc
 *.pyo
 local_reports/
-venv/
-env/
+venv
+.env
 .pytest_cache/
 coverage.xml
 .coverage

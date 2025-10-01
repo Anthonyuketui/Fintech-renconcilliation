@@ -1,6 +1,11 @@
 """
-notification_service.py - CORRECTED VERSION
-Sends email notifications for reconciliation results with severity-based alerting.
+notification_service.py
+
+Handles all email notifications for reconciliation results, including severity-based alerting.
+
+This module is responsible for constructing and sending emails with reconciliation summaries,
+attaching reports, and sending failure alerts when necessary. It integrates with standard
+Python email libraries and can be extended for other notification channels.
 """
 
 import smtplib
@@ -19,17 +24,27 @@ logger = structlog.get_logger()
 
 
 class NotificationService:
-    """Handles email notifications for reconciliation results."""
-    
+    """
+    Handles email notifications for reconciliation results.
+
+    This class provides methods to send summary notifications and failure alerts.
+    All notifications are logged for audit and troubleshooting.
+    """
+
     def __init__(self):
-        """Initialize notification service with environment configuration."""
+        """
+        Initialize notification service with environment configuration.
+
+        Loads SMTP server details and credentials from environment variables.
+        Defines severity thresholds for alerting.
+        """
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
         self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
         self.email_user = os.getenv('EMAIL_USER')
         self.email_password = os.getenv('EMAIL_PASSWORD')
         self.operations_email = os.getenv('OPERATIONS_EMAIL', 'operations@fintech.com')
 
-        # Notification severity levels
+        # Notification severity levels for business logic
         self.severity_thresholds = {
             'critical': {'missing_count': 50, 'amount': 50000},
             'high': {'missing_count': 20, 'amount': 10000},
@@ -44,18 +59,18 @@ class NotificationService:
         report_url: Optional[str] = None,
         report_attachment: Optional[str] = None
     ) -> bool:
-        """Send reconciliation notification with appropriate severity.
-        
+        """
+        Send reconciliation notification with appropriate severity.
+
         Args:
             reconciliation_result: The reconciliation result object
             reconciliation_date: Date of the reconciliation run
             report_url: Optional S3 presigned URL to the report
             report_attachment: Optional local file path to attach to email
-            
+
         Returns:
             True if email sent successfully, False otherwise
         """
-
         severity = self._determine_severity(reconciliation_result)
 
         try:
@@ -75,7 +90,6 @@ class NotificationService:
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()
                 server.login(self.email_user, self.email_password)
-
                 text = message.as_string()
                 server.sendmail(self.email_user, self.operations_email, text)
 
@@ -96,13 +110,14 @@ class NotificationService:
             return False
 
     def send_failure_alert(self, processor: str, date: str, error_message: str) -> bool:
-        """Send alert email when reconciliation fails.
-        
+        """
+        Send alert email when reconciliation fails.
+
         Args:
             processor: Name of the payment processor
             date: Date of the failed reconciliation
             error_message: Error message describing the failure
-            
+
         Returns:
             True if email sent successfully, False otherwise
         """
@@ -132,12 +147,10 @@ class NotificationService:
                     <p><strong>Processor:</strong> {processor.upper()}</p>
                     <p><strong>Date:</strong> {date}</p>
                 </div>
-                
                 <div class="details">
                     <h3>Error Details</h3>
                     <pre>{error_message}</pre>
                 </div>
-                
                 <div style="margin-top: 20px; padding: 15px; background-color: #fff3cd; border-radius: 5px;">
                     <h3>Immediate Actions Required</h3>
                     <ul>
@@ -166,7 +179,11 @@ class NotificationService:
             return False
 
     def _determine_severity(self, result: ReconciliationResult) -> str:
-        """Determine notification severity based on thresholds."""
+        """
+        Determine notification severity based on thresholds.
+
+        Uses missing transaction count and discrepancy amount to select severity.
+        """
         missing_count = result.summary.missing_transactions_count
         missing_amount = float(result.summary.total_discrepancy_amount)
 
@@ -187,8 +204,9 @@ class NotificationService:
         report_url: Optional[str] = None,
         report_attachment: Optional[str] = None
     ) -> MIMEMultipart:
-        """Create email message with appropriate content."""
-
+        """
+        Create email message with appropriate content and optional attachment.
+        """
         message = MIMEMultipart()
         message['From'] = self.email_user
         message['To'] = self.operations_email
@@ -223,9 +241,9 @@ class NotificationService:
         severity: str,
         report_url: Optional[str] = None
     ) -> str:
-        """Generate HTML email body."""
-
-        # Color coding based on severity
+        """
+        Generate HTML email body for reconciliation notification.
+        """
         color_map = {
             'critical': '#dc3545',
             'high': '#fd7e14',
@@ -237,7 +255,6 @@ class NotificationService:
         missing_count = result.summary.missing_transactions_count
         discrepancy_amount = result.summary.total_discrepancy_amount
 
-        # Generate recommendations
         recommendations = self._generate_email_recommendations(result, severity)
 
         html_body = f"""
@@ -308,7 +325,9 @@ class NotificationService:
         return html_body
 
     def _generate_email_recommendations(self, result: ReconciliationResult, severity: str) -> str:
-        """Generate recommendations section for email."""
+        """
+        Generate recommendations section for email based on severity.
+        """
         if severity == 'critical':
             recs = [
                 "🚨 <strong>IMMEDIATE ACTION REQUIRED</strong>",
@@ -341,7 +360,11 @@ class NotificationService:
         return f'<div class="recommendations"><h3>Recommended Actions</h3>{"<br>".join(recs)}</div>'
 
     def _attach_report(self, message: MIMEMultipart, file_path: str):
-        """Attach report file to email."""
+        """
+        Attach report file to email if available.
+
+        Handles file reading and encoding for email attachment.
+        """
         try:
             with open(file_path, "rb") as attachment:
                 part = MIMEBase('application', 'octet-stream')
