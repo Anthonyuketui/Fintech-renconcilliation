@@ -315,7 +315,7 @@ Email notifications include:
 
 ### Entity Relationship Diagram
 
-![ERD Diagram](docs/images//ERD.png)
+![ERD Diagram](docs/images//Erd.png)
 
 **Entity Relationships:**
 - `reconciliation_runs` (1) → (N) `missing_transactions`
