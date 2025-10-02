@@ -73,12 +73,13 @@ jobs:
           INTERNAL_API_BASE_URL: https://jsonplaceholder.typicode.com
           REPORT_OUTPUT_DIR: Sample_Output
         run: |
-          mkdir -p Sample_Output
-          PYTHONPATH=${{ github.workspace }}/src:$PYTHONPATH pytest tests/ \
-            -v \
-          --cov=src/data_fetcher \
-          --cov=src/reconciliation_engine \
-          --cov=src/report_generator \
+         mkdir -p Sample_Output
+         export PYTHONPATH=${{ github.workspace }}/src:$PYTHONPATH
+         pytest tests/ \
+          -v \
+          --cov=src.data_fetcher \
+          --cov=src.reconciliation_engine \
+          --cov=src.report_generator \
           --cov-report=term-missing \
           --cov-report=html \
           --cov-fail-under=70 \
