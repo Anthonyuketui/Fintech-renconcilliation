@@ -12,3 +12,7 @@ htmlcov/
 .DS_Store
 db_data/
 Sample_Output/
+.vscode
+pyproject.toml
+pytest.ini
+Local_file

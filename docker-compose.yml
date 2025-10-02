@@ -31,10 +31,9 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./Sample_Output:/app/Sample_Output
+      - ./Local_file:/app/Local_file
     networks:
       - fintech-network
-    command: ["python", "src/main.py", "--processors", "paypal"]
 
 volumes:
   db_data:

@@ -1,0 +1,88 @@
+{
+  "report_metadata": {
+    "generated_at": "2025-10-02T16:14:26.349968"
+  },
+  "reconciliation_summary": {
+    "date": "2025-10-02",
+    "processor": "paypal",
+    "processor_transactions": 30,
+    "total_discrepancy_amount": 652.94,
+    "total_volume_processed": 6577.5
+  },
+  "missing_transactions": [
+    {
+      "transaction_id": "TXN_PAYPAL_20251002_0006",
+      "processor_name": "paypal",
+      "amount": "49.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_006",
+      "transaction_date": "2025-10-02 16:14:24.854176",
+      "reference_number": "REF_PAYPAL_6",
+      "fee": "1.75"
+    },
+    {
+      "transaction_id": "TXN_PAYPAL_20251002_0010",
+      "processor_name": "paypal",
+      "amount": "79.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_010",
+      "transaction_date": "2025-10-02 16:14:24.854464",
+      "reference_number": "REF_PAYPAL_10",
+      "fee": "2.62"
+    },
+    {
+      "transaction_id": "TXN_PAYPAL_20251002_0014",
+      "processor_name": "paypal",
+      "amount": "499.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_014",
+      "transaction_date": "2025-10-02 16:14:24.854759",
+      "reference_number": "REF_PAYPAL_14",
+      "fee": "14.80"
+    },
+    {
+      "transaction_id": "TXN_PAYPAL_20251002_0024",
+      "processor_name": "paypal",
+      "amount": "14.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_024",
+      "transaction_date": "2025-10-02 16:14:24.855473",
+      "reference_number": "REF_PAYPAL_24",
+      "fee": "0.73"
+    },
+    {
+      "transaction_id": "TXN_PAYPAL_20251002_0026",
+      "processor_name": "paypal",
+      "amount": "0.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_026",
+      "transaction_date": "2025-10-02 16:14:24.855640",
+      "reference_number": "REF_PAYPAL_26",
+      "fee": "0.33"
+    },
+    {
+      "transaction_id": "TXN_PAYPAL_20251002_0027",
+      "processor_name": "paypal",
+      "amount": "6.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_027",
+      "transaction_date": "2025-10-02 16:14:24.855830",
+      "reference_number": "REF_PAYPAL_27",
+      "fee": "0.50"
+    }
+  ],
+  "financial_impact": {
+    "total_volume": 6577.5,
+    "discrepancy_rate": 0.2,
+    "fees_at_risk": 20.73,
+    "risk_level": "HIGH",
+    "compliance_status": "NEEDS_REVIEW",
+    "delay_risk": "LOW"
+  }
+}

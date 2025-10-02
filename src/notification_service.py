@@ -8,17 +8,19 @@ attaching reports, and sending failure alerts when necessary. It integrates with
 Python email libraries and can be extended for other notification channels.
 """
 
+import os
 import smtplib
 import ssl
-import os
+from datetime import date
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-import structlog
-from typing import Optional
 from pathlib import Path
-from datetime import date
+from typing import Optional
+
+import structlog
+
 from models import ReconciliationResult
 
 logger = structlog.get_logger()
@@ -60,21 +62,29 @@ class NotificationService:
             if self.smtp_port == 465:
                 # SSL mode
                 context = ssl.create_default_context()
-                with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, context=context) as server:
+                with smtplib.SMTP_SSL(
+                    self.smtp_server, self.smtp_port, context=context
+                ) as server:
                     server.login(self.email_user, self.email_password)
-                    server.sendmail(self.email_user, self.operations_email, message.as_string())
+                    server.sendmail(
+                        self.email_user, self.operations_email, message.as_string()
+                    )
             else:
                 # STARTTLS mode
                 with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                     server.starttls()
                     server.login(self.email_user, self.email_password)
-                    server.sendmail(self.email_user, self.operations_email, message.as_string())
+                    server.sendmail(
+                        self.email_user, self.operations_email, message.as_string()
+                    )
 
             logger.info("Email sent successfully", subject=message["Subject"])
             return True
 
         except Exception as e:
-            logger.error("Failed to send email", error=str(e), subject=message["Subject"])
+            logger.error(
+                "Failed to send email", error=str(e), subject=message["Subject"]
+            )
             return False
 
     def send_reconciliation_notification(
@@ -89,7 +99,11 @@ class NotificationService:
 
         try:
             message = self._create_email_message(
-                reconciliation_result, reconciliation_date, severity, report_url, report_attachment
+                reconciliation_result,
+                reconciliation_date,
+                severity,
+                report_url,
+                report_attachment,
             )
             return self._send_email(message)
 
@@ -107,7 +121,9 @@ class NotificationService:
             message = MIMEMultipart()
             message["From"] = self.email_user
             message["To"] = self.operations_email
-            message["Subject"] = f"🚨 CRITICAL: Reconciliation Failed - {processor} - {date}"
+            message["Subject"] = (
+                f"🚨 CRITICAL: Reconciliation Failed - {processor} - {date}"
+            )
 
             body = f"""
             <html>
@@ -129,7 +145,9 @@ class NotificationService:
             return self._send_email(message)
 
         except Exception as e:
-            logger.error("Failed to construct failure alert", processor=processor, error=str(e))
+            logger.error(
+                "Failed to construct failure alert", processor=processor, error=str(e)
+            )
             return False
 
     def _determine_severity(self, result: ReconciliationResult) -> str:
@@ -138,7 +156,10 @@ class NotificationService:
         missing_amount = float(result.summary.total_discrepancy_amount)
 
         for severity, thresholds in self.severity_thresholds.items():
-            if missing_count >= thresholds["missing_count"] or missing_amount >= thresholds["amount"]:
+            if (
+                missing_count >= thresholds["missing_count"]
+                or missing_amount >= thresholds["amount"]
+            ):
                 return severity
         return "low"
 
@@ -167,7 +188,9 @@ class NotificationService:
             f"Daily Reconciliation Report - {result.processor} - {reconciliation_date}"
         )
 
-        body = self._generate_email_body(result, reconciliation_date, severity, report_url)
+        body = self._generate_email_body(
+            result, reconciliation_date, severity, report_url
+        )
         message.attach(MIMEText(body, "html"))
 
         if report_attachment and Path(report_attachment).exists():
@@ -199,7 +222,8 @@ class NotificationService:
             f'<div style="margin:20px 0;"><a href="{report_url}" '
             f'style="background:#007bff;color:white;padding:10px 20px;'
             f'text-decoration:none;border-radius:5px;">Download Full Report</a></div>'
-            if report_url else ""
+            if report_url
+            else ""
         )
 
         return f"""
@@ -227,16 +251,26 @@ class NotificationService:
         </html>
         """
 
-    def _generate_email_recommendations(self, result: ReconciliationResult, severity: str) -> str:
+    def _generate_email_recommendations(
+        self, result: ReconciliationResult, severity: str
+    ) -> str:
         """Generate recommendations for reconciliation email."""
         recs = {
-            "critical": ["🚨 Immediate action required", "Contact payment processor", "Escalate to compliance"],
+            "critical": [
+                "🚨 Immediate action required",
+                "Contact payment processor",
+                "Escalate to compliance",
+            ],
             "high": ["⚠️ Review within 2 hours", "Contact processor if needed"],
-            "medium": ["📊 Review during business hours", "Verify account configurations"],
+            "medium": [
+                "📊 Review during business hours",
+                "Verify account configurations",
+            ],
             "low": ["✅ No immediate action required", "Archive report"],
         }
         items = "<br>".join(recs.get(severity, []))
-        return f'<div style="background:#fff3cd;padding:15px;border-radius:5px;margin:15px 0;"><h3>Actions</h3>{items}</div>'
+        return f'<div style="background:#fff3cd;padding:15px;border-radius:\
+        5px;margin:15px 0;"><h3>Actions</h3>{items}</div>'
 
     def _attach_report(self, message: MIMEMultipart, file_path: str):
         """Attach report file to email."""
@@ -245,7 +279,9 @@ class NotificationService:
                 part = MIMEBase("application", "octet-stream")
                 part.set_payload(attachment.read())
             encoders.encode_base64(part)
-            part.add_header("Content-Disposition", f"attachment; filename={Path(file_path).name}")
+            part.add_header(
+                "Content-Disposition", f"attachment; filename={Path(file_path).name}"
+            )
             message.attach(part)
         except Exception as e:
             logger.warning("Failed to attach report", file_path=file_path, error=str(e))

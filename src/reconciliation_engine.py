@@ -7,14 +7,13 @@ for duplicate transaction IDs, and maintains the Decimal type for 99.9% financia
 """
 
 from __future__ import annotations
-
 import logging
 from datetime import date
-from typing import List, Dict, Tuple, Set
 from decimal import Decimal
+from typing import Dict, List
 
 # Ensure you import all necessary models and types
-from models import Transaction, ReconciliationResult, ReconciliationSummary
+from models import ReconciliationResult, ReconciliationSummary, Transaction
 
 # Use standard logging, easily integratable with monitoring tools
 logger = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ class ReconciliationEngine:
     def _build_index(transactions: List[Transaction]) -> Dict[str, Transaction]:
         """
         Constructs a mapping from transaction ID to the full transaction object.
-        
+
         This is an O(N) operation and is necessary for the subsequent O(1) lookups.
         It also includes a critical Data Quality Check for duplicate IDs.
         """
@@ -39,7 +38,8 @@ class ReconciliationEngine:
             if t.transaction_id in index:
                 # Data Quality Check (V2 Win): Log a warning if a duplicate ID is found.
                 logger.warning(
-                    "Duplicate transaction_id %s encountered; keeping first occurrence", t.transaction_id
+                    "Duplicate transaction_id %s encountered; keeping first occurrence",
+                    t.transaction_id,
                 )
                 continue
             index[t.transaction_id] = t
@@ -78,7 +78,7 @@ class ReconciliationEngine:
             reconciliation_date=run_date,
             processor=processor,
             processor_transactions=len(unique_proc_txns),  # Only unique transactions
-            internal_transactions=len(int_index),          # Only unique internal transactions
+            internal_transactions=len(int_index),  # Only unique internal transactions
             missing_transactions_count=len(missing_details),
             total_discrepancy_amount=total_discrepancy,
             total_volume_processed=total_volume,
@@ -89,7 +89,8 @@ class ReconciliationEngine:
             reconciliation_date=run_date,
             processor=processor,
             summary=summary,
-            missing_transactions_details=missing_details
+            # FIX: Use model_dump() for Pydantic V2 nested model validation
+            missing_transactions_details=[t.model_dump() for t in missing_details],
         )
 
         logger.info(
