@@ -16,3 +16,4 @@ Sample_Output/
 pyproject.toml
 pytest.ini
 Local_file
+sanity-check.sh
