@@ -14,8 +14,8 @@ import csv
 import tempfile
 import shutil
 
-from report_generator import ReportGenerator
-from models import Transaction, ReconciliationResult, ReconciliationSummary
+from src.report_generator import ReportGenerator
+from src.models import Transaction, ReconciliationResult, ReconciliationSummary
 
 
 class TestReportGenerator:

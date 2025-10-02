@@ -7,8 +7,8 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import Mock, patch
 import requests
-from data_fetcher import DataFetcher
-from models import Transaction
+from src.data_fetcher import DataFetcher
+from src.models import Transaction
 
 
 class TestDataFetcher:

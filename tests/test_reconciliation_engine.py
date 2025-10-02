@@ -8,8 +8,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 from datetime import date, datetime
 from decimal import Decimal
-from reconciliation_engine import ReconciliationEngine
-from models import Transaction, ReconciliationResult
+from src.reconciliation_engine import ReconciliationEngine
+from src.models import Transaction, ReconciliationResult
 
 
 class TestReconciliationEngine:
