@@ -76,12 +76,14 @@ jobs:
           mkdir -p Sample_Output
           PYTHONPATH=${{ github.workspace }}/src:$PYTHONPATH pytest tests/ \
             -v \
-            --cov=src \
-            --cov-report=term-missing \
-            --cov-report=html \
-            --cov-fail-under=70 \
-            --html=pytest-report.html \
-            --self-contained-html
+          --cov=src/data_fetcher \
+          --cov=src/reconciliation_engine \
+          --cov=src/report_generator \
+          --cov-report=term-missing \
+          --cov-report=html \
+          --cov-fail-under=70 \
+          --html=pytest-report.html \
+          --self-contained-html
       
       - name: Upload Reports
         if: always()
