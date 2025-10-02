@@ -9,7 +9,7 @@ from typing import Optional
 from datetime import date
 
 import boto3
-from botocore.exceptions import BotoCoreError, NoCredentialsError
+from botocore.exceptions import BotoCoreError, NoCredentialsError, ClientError
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +26,44 @@ class AWSManager:
         self.bucket_name = bucket_name or os.getenv("AWS_S3_BUCKET_NAME")
         self.region = region or os.getenv("AWS_REGION", "us-east-1")
         self.s3_client = None
+        self._s3_available = False
+        
         # Lazily initialize the boto3 client if credentials are present
         if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY") and self.bucket_name:
-            self.s3_client = boto3.client(
-                "s3",
-                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-                region_name=self.region,
-            )
+            try:
+                self.s3_client = boto3.client(
+                    "s3",
+                    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+                    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+                    region_name=self.region,
+                )
+                # Validate credentials immediately
+                self._validate_credentials()
+            except Exception as exc:
+                logger.warning("Failed to initialize S3 client: %s. Using local fallback.", exc)
+                self.s3_client = None
         else:
             logger.info("AWS credentials or bucket not fully configured; using local fallback")
+
+    def _validate_credentials(self) -> None:
+        """Validate AWS credentials and bucket access during initialization."""
+        try:
+            self.s3_client.head_bucket(Bucket=self.bucket_name)
+            self._s3_available = True
+            logger.info("AWS S3 validated successfully for bucket: %s", self.bucket_name)
+        except ClientError as exc:
+            error_code = exc.response.get('Error', {}).get('Code', 'Unknown')
+            logger.warning(
+                "AWS credentials invalid or bucket inaccessible (%s): %s. Using local fallback.",
+                error_code,
+                self.bucket_name
+            )
+            self.s3_client = None
+            self._s3_available = False
+        except Exception as exc:
+            logger.warning("Failed to validate S3 access: %s. Using local fallback.", exc)
+            self.s3_client = None
+            self._s3_available = False
 
     def upload_report(self, file_path: Path, key: Optional[str] = None) -> str:
         """Upload a report file to S3 or return a local path.
@@ -46,12 +74,20 @@ class AWSManager:
                 organized path with date and filename.
 
         Returns:
-            If uploaded to S3, returns the S3 object key.  Otherwise returns
-            the absolute path of the local file.
+            If uploaded to S3, returns the S3 object key (e.g., "reports/2025-10-01/file.csv").
+            If using local fallback, returns path with "file://" prefix 
+            (e.g., "file:///absolute/path/to/file.csv").
+
+        Raises:
+            FileNotFoundError: If the file_path doesn't exist.
         """
-        if not self.s3_client or not self.bucket_name:
-            # Simply return path; caller may treat this as local storage
-            return str(file_path.resolve())
+        # Validate file exists before attempting anything
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        # Use local storage if S3 is not available
+        if not self._s3_available or not self.s3_client or not self.bucket_name:
+            return self._use_local_storage(file_path)
         
         # Enhanced key generation with date organization for production
         if not key:
@@ -76,22 +112,74 @@ class AWSManager:
             )
             logger.info("Uploaded report to S3 bucket %s as %s", self.bucket_name, key)
             return key
-        except (BotoCoreError, NoCredentialsError) as exc:
-            logger.exception("Failed to upload to S3, falling back to local storage: %s", exc)
-            return str(file_path.resolve())
+            
+        except NoCredentialsError:
+            logger.error("AWS credentials not found, falling back to local storage")
+            self._s3_available = False  # Disable for future calls
+            return self._use_local_storage(file_path)
+            
+        except ClientError as exc:
+            error_code = exc.response.get('Error', {}).get('Code', 'Unknown')
+            
+            # For certain errors, fall back to local storage
+            if error_code in ('NoSuchBucket', 'AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch'):
+                logger.error("S3 access error (%s), falling back to local storage", error_code)
+                self._s3_available = False  # Disable for future calls
+                return self._use_local_storage(file_path)
+            else:
+                # Other errors might be transient
+                logger.exception("S3 client error during upload")
+                raise
+                
+        except BotoCoreError:
+            logger.exception("BotoCore error during S3 upload, falling back to local storage")
+            return self._use_local_storage(file_path)
+            
+        except Exception:
+            logger.exception("Unexpected error during S3 upload")
+            raise
+
+    def _use_local_storage(self, file_path: Path) -> str:
+        """Return local file path with file:// prefix.
+        
+        Args:
+            file_path: Path to the local file.
+            
+        Returns:
+            Local file path with "file://" prefix and forward slashes.
+        """
+        local_path = file_path.resolve().as_posix()
+        return f"file://{local_path}"
+
+    def is_s3_path(self, path: str) -> bool:
+        """Check if a path is an S3 key or local file path.
+        
+        Args:
+            path: Path string to check.
+            
+        Returns:
+            True if S3 key, False if local path.
+        """
+        return not path.startswith("file://")
 
     def generate_presigned_url(self, key: str, expires_in: int = 3600) -> Optional[str]:
         """Generate a presigned URL for an S3 object if possible.
 
         Args:
-            key: The object key in the configured bucket.
+            key: The object key in the configured bucket (not a file:// path).
             expires_in: Expiration time in seconds (default: 1 hour).
 
         Returns:
             A URL string if generation succeeds; otherwise None.
         """
+        # Don't try to generate URLs for local paths
+        if key.startswith("file://"):
+            logger.debug("Cannot generate presigned URL for local path: %s", key)
+            return None
+            
         if not self.s3_client or not self.bucket_name:
             return None
+            
         try:
             url = self.s3_client.generate_presigned_url(
                 "get_object",
@@ -100,8 +188,8 @@ class AWSManager:
             )
             logger.debug("Generated presigned URL for %s (expires in %d seconds)", key, expires_in)
             return url
-        except (BotoCoreError, NoCredentialsError) as exc:
-            logger.warning("Unable to generate presigned URL: %s", exc)
+        except (BotoCoreError, NoCredentialsError, ClientError) as exc:
+            logger.warning("Unable to generate presigned URL for %s: %s", key, exc)
             return None
 
     def _get_content_type(self, file_path: Path) -> str:
@@ -126,9 +214,11 @@ class AWSManager:
             # Test bucket access
             self.s3_client.head_bucket(Bucket=self.bucket_name)
             logger.info("S3 health check passed for bucket: %s", self.bucket_name)
+            self._s3_available = True
             return True
         except Exception as exc:
             logger.error("S3 health check failed: %s", exc)
+            self._s3_available = False
             return False
 
     def list_recent_reports(self, prefix: str = "reports/", max_keys: int = 100) -> list:

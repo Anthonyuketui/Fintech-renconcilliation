@@ -2,14 +2,14 @@
 -- Includes data integrity, performance, security, and compliance features
 
 -- Create database with proper encoding and collation
-CREATE DATABASE fintech_reconciliation 
-    WITH ENCODING 'UTF8' 
-    LC_COLLATE = 'en_US.UTF-8' 
-    LC_CTYPE = 'en_US.UTF-8'
-    TEMPLATE template0;
+-- CREATE DATABASE fintech_reconciliation 
+--     WITH ENCODING 'UTF8' 
+--     LC_COLLATE = 'en_US.UTF-8' 
+--     LC_CTYPE = 'en_US.UTF-8'
+--     TEMPLATE template0;
 
--- Connect to the database
-\c fintech_reconciliation;
+-- -- Connect to the database
+-- \c fintech_reconciliation;
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -19,7 +19,20 @@ CREATE EXTENSION IF NOT EXISTS "btree_gin"; -- For composite indexes
 -- Create custom types for better data integrity
 CREATE TYPE reconciliation_status AS ENUM ('running', 'completed', 'failed', 'cancelled');
 CREATE TYPE transaction_status AS ENUM ('completed', 'pending', 'failed', 'cancelled');
-CREATE TYPE audit_action AS ENUM ('insert', 'update', 'delete', 'reconciliation_started', 'reconciliation_completed', 'system_check');
+CREATE TYPE audit_action AS ENUM (
+    'insert', 
+    'update', 
+    'delete', 
+    'reconciliation_started',
+    'reconciliation_started_or_restarted',
+    'reconciliation_completed',
+    'reconciliation_metrics_recorded',
+    's3_key_updated',
+    'status_updated_to_completed',
+    'status_updated_to_failed',
+    'status_updated_to_cancelled',
+    'system_check'
+);
 
 -- ==================================================
 -- CORE BUSINESS TABLES
@@ -166,7 +179,7 @@ CREATE INDEX idx_system_health_component_time ON system_health(component, check_
 
 -- Partial indexes for common queries
 CREATE INDEX idx_reconciliation_runs_recent_completed ON reconciliation_runs(run_date DESC, processor_name) 
-    WHERE status = 'completed' AND run_date >= CURRENT_DATE - INTERVAL '90 days';
+    WHERE status = 'completed';
 
 CREATE INDEX idx_missing_transactions_high_value ON missing_transactions(reconciliation_run_id, amount DESC)
     WHERE amount >= 1000.00;

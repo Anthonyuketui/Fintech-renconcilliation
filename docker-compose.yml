@@ -1,39 +1,44 @@
-
 services:
   db:
     image: postgres:15-alpine
     container_name: fintech-db
     environment:
-      POSTGRES_USER: fintech
-      POSTGRES_PASSWORD: fintech
-      POSTGRES_DB: fintech_reconciliation
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./setup.sql:/docker-entrypoint-initdb.d/setup.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fintech -d fintech_reconciliation"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - fintech-network
 
   app:
     build: .
     container_name: fintech-app
+    env_file:
+      - .env
     environment:
+      # Only override the host to point to the db service
       DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: fintech_reconciliation
-      DB_USER: fintech
-      DB_PASSWORD: fintech
-      PROCESSOR_API_BASE_URL: https://dummyjson.com
-      INTERNAL_API_BASE_URL: https://jsonplaceholder.typicode.com
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./local_reports:/app/local_reports
+      - ./Sample_Output:/app/Sample_Output
+    networks:
+      - fintech-network
+    command: ["python", "src/main.py", "--processors", "paypal"]
 
 volumes:
   db_data:
+
+networks:
+  fintech-network:
+    driver: bridge

@@ -1,5 +1,5 @@
 """
-main.py
+main.py - FIXED VERSION
 
 Entry point and orchestrator for the FinTech Transaction Reconciliation System.
 
@@ -81,6 +81,7 @@ class ReconciliationSystem:
         local_report_dir = SETTINGS.REPORT_OUTPUT_DIR / f"{processor_name}_{target_date_str}"
         csv_path = None
         json_path = None
+        s3_uploaded = False
 
         try:
             # Step 1: Audit Start
@@ -98,7 +99,7 @@ class ReconciliationSystem:
                 processor_name=processor_name
             )
             proc_txns = fetcher.fetch_processor_data(run_date=target_date)
-            internal_txns = fetcher.fetch_internal_data(run_date=target_date)
+            internal_txns = fetcher.fetch_internal_data(processor_txns=proc_txns, run_date=target_date)
             fetcher.close()
 
             logger.info("Data fetched successfully",
@@ -118,48 +119,98 @@ class ReconciliationSystem:
             csv_path, summary_text, json_path = self.report_generator.generate_all_reports(
                 result, local_report_dir
             )
-            logger.info("Reports generated locally", csv_path=str(csv_path), json_path=str(json_path))
+            logger.info("Reports generated locally", 
+                       csv_path=str(csv_path.as_posix()), 
+                       json_path=str(json_path.as_posix()))
 
-            # Step 6: Archival & Audit
-            s3_key = self.aws_manager.upload_report(csv_path)
-            self.database_manager.update_s3_report_key(run_id, s3_key)
-            presigned_url = self.aws_manager.generate_presigned_url(s3_key)
+            # Step 6: Archival (Optional - AWS S3)
+            s3_location = None
+            presigned_url = None
+            try:
+                s3_location = self.aws_manager.upload_report(csv_path)
+                
+                # FIXED: Use the helper method to properly detect S3 vs local
+                s3_uploaded = self.aws_manager.is_s3_path(s3_location)
+                
+                if s3_uploaded:
+                    # It's in S3
+                    self.database_manager.update_s3_report_key(run_id, s3_location)
+                    presigned_url = self.aws_manager.generate_presigned_url(s3_location)
+                    logger.info("Report uploaded to S3", s3_key=s3_location)
+                else:
+                    # It's local storage (has file:// prefix)
+                    local_path = s3_location.replace("file://", "")
+                    self.database_manager.update_s3_report_key(run_id, local_path)
+                    logger.info("Report stored locally (S3 unavailable)", local_path=local_path)
+                    
+            except Exception as e:
+                logger.warning("S3 upload failed, reports available locally", 
+                             error=str(e), local_path=str(csv_path.as_posix()))
+                s3_uploaded = False
 
-            # Step 7: Communication
-            self.notification_service.send_reconciliation_notification(
-                result, presigned_url, report_attachment=str(csv_path)
-            )
+            # Step 7: Communication (Optional - Email)
+            try:
+                # Pass the correct parameters based on storage type
+                if s3_uploaded and presigned_url:
+                    notification_sent = self.notification_service.send_reconciliation_notification(
+                        result, target_date, report_url=presigned_url, report_attachment=None
+                    )
+                else:
+                    notification_sent = self.notification_service.send_reconciliation_notification(
+                        result, target_date, report_url=None, report_attachment=str(csv_path)
+                    )
+                    
+                if notification_sent:
+                    logger.info("Notification sent successfully")
+                else:
+                    logger.info("Notification skipped - email not configured")
+            except Exception as e:
+                logger.warning("Failed to send notification", error=str(e))
 
-            logger.info("Reconciliation complete and notification sent", processor=processor_name)
+            logger.info("Reconciliation complete", processor=processor_name, 
+                       s3_uploaded=s3_uploaded, local_path=str(csv_path.as_posix()))
             return True
 
         except Exception as e:
             error_msg = str(e)[:500]
-            logger.error("Reconciliation failed for processor", processor=processor_name, error=error_msg, exc_info=True)
+            logger.error("Reconciliation failed for processor", processor=processor_name, 
+                        error=error_msg, exc_info=True)
             if run_id:
                 self.database_manager.update_reconciliation_status(run_id, 'failed', str(e))
-            self.notification_service.send_failure_alert(processor_name, target_date_str, error_msg)
+            
+            # Try to send failure alert (optional)
+            try:
+                self.notification_service.send_failure_alert(processor_name, target_date_str, error_msg)
+            except Exception as alert_err:
+                logger.warning("Could not send failure alert", error=str(alert_err))
+            
             return False
 
         finally:
-            # Atomic Cleanup: Remove local report files and directory after archival
-            if csv_path and hasattr(csv_path, "exists") and csv_path.exists():
-                try:
-                    csv_path.unlink()
-                except Exception as e:
-                    logger.warning("Failed to delete CSV file", path=str(csv_path), error=str(e))
+            # Only delete local files if they were successfully uploaded to S3
+            if s3_uploaded:
+                if csv_path and csv_path.exists():
+                    try:
+                        csv_path.unlink()
+                        logger.debug("Deleted local CSV after S3 upload", path=str(csv_path.as_posix()))
+                    except Exception as e:
+                        logger.warning("Failed to delete CSV file", path=str(csv_path.as_posix()), error=str(e))
 
-            if json_path and hasattr(json_path, "exists") and json_path.exists():
-                try:
-                    json_path.unlink()
-                except Exception as e:
-                    logger.warning("Failed to delete JSON file", path=str(json_path), error=str(e))
+                if json_path and json_path.exists():
+                    try:
+                        json_path.unlink()
+                        logger.debug("Deleted local JSON after S3 upload", path=str(json_path.as_posix()))
+                    except Exception as e:
+                        logger.warning("Failed to delete JSON file", path=str(json_path.as_posix()), error=str(e))
 
-            if local_report_dir and local_report_dir.is_dir():
-                try:
-                    local_report_dir.rmdir()
-                except OSError:
-                    pass  # Directory not empty or doesn't exist
+                if local_report_dir and local_report_dir.is_dir():
+                    try:
+                        local_report_dir.rmdir()
+                        logger.debug("Cleaned up report directory after S3 upload")
+                    except OSError:
+                        pass  # Directory not empty or doesn't exist
+            else:
+                logger.info("Local reports preserved", directory=str(local_report_dir.as_posix()))
 
     def run(self, target_date: str, processors: List[str]):
         """
@@ -187,7 +238,7 @@ def setup_logging():
     structlog.configure(
         processors=[
             structlog.stdlib.add_log_level,
-            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=True),
+            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
