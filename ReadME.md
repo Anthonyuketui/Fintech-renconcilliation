@@ -153,7 +153,8 @@ Create `.env` file (copy from `.env.example`):
 
 ```ini
 # Database (Required)
-DB_HOST=db
+# Use 'localhost' for local testing, Docker Compose overrides to 'db' automatically
+DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=fintech_reconciliation
 DB_USER=fintech
@@ -167,7 +168,7 @@ AWS_REGION=us-east-1
 
 # Email Notifications (Optional)
 SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
+SMTP_PORT=587  # Use 465 for SSL
 EMAIL_USER=your_email@company.com
 EMAIL_PASSWORD=your_app_password
 OPERATIONS_EMAIL=ops@fintech.com
@@ -177,11 +178,12 @@ PROCESSOR_API_BASE_URL=https://dummyjson.com
 INTERNAL_API_BASE_URL=https://jsonplaceholder.typicode.com
 ```
 
-### Configuration Notes
+**Important Notes:**
 
-- System works without AWS credentials (uses local file storage as fallback)
-- Email notifications are optional (skipped if SMTP not configured)
-- For Gmail: Enable 2FA and generate App Password at https://myaccount.google.com/apppasswords
+- `DB_HOST=localhost` for local development (connecting from host machine)
+- Docker Compose automatically overrides to `DB_HOST=db` for container networking
+- Gmail requires App Password (not regular password): https://myaccount.google.com/apppasswords
+- System works without AWS/Email - they're optional features
 
 ---
 
@@ -258,11 +260,20 @@ For production deployments, use cron:
 
 ### Sample Email Notification
 
-**Subject:** Daily Reconciliation Report - STRIPE - 2025-09-30  
+![Sample Email Screenshot](docs/images/Email-Notifications.png)
 
-**Body (HTML Rendered):**
+Email notifications include:
+- **Subject**: Severity indicator (🚨 CRITICAL, ⚠️ HIGH, 📊 ATTENTION, ✅ INFO)
+- **Summary Section**: Transaction counts, discrepancy amounts
+- **Risk Assessment**: Automated risk level calculation
+- **Recommendations**: Actionable next steps
+- **Report Access**: Download link (S3) or file attachment (local)
 
-![Sample Email Screenshot](Sample_Output/Email-Notifications.png)
+**Severity Levels:**
+- CRITICAL: 50+ missing transactions or $50K+ discrepancy
+- HIGH: 20+ missing or $10K+ discrepancy
+- MEDIUM: 5+ missing or $1K+ discrepancy
+- LOW: <5 missing and <$1K discrepancy
 
 ### Sample JSON Output
 
@@ -302,14 +313,22 @@ For production deployments, use cron:
 
 ## Database Schema
 
-### Tables Overview
+### Entity Relationship Diagram
 
-- **reconciliation_runs** - Run metadata with status tracking
-- **missing_transactions** - Discrepancies per run with full details
-- **audit_log** - Immutable audit trail for compliance
-- **data_quality_checks** - Validation results per run
-- **system_health** - Component health monitoring
-- **system_configuration** - Application settings
+![ERD Diagram](docs/images//ERD.png)
+
+**Entity Relationships:**
+- `reconciliation_runs` (1) → (N) `missing_transactions`
+- `reconciliation_runs` (1) → (N) `data_quality_checks`
+- `reconciliation_runs` (1) → (N) `audit_log`
+
+**Key Tables:**
+- `reconciliation_runs` - Run metadata with status tracking
+- `missing_transactions` - Discrepancies with full transaction details
+- `audit_log` - Immutable audit trail (row-level security enabled)
+- `data_quality_checks` - Automated validation results
+- `system_health` - Component health monitoring
+- `system_configuration` - Application settings
 
 ### Key Features
 
@@ -319,10 +338,6 @@ For production deployments, use cron:
 - Triggers for automatic audit logging and validation
 - Indexes optimized for common query patterns
 - Row-level security enabled
-
-### Entity Relationship Diagram
-
-[ERD Diagram](Sample_Output/ERD.png)
 
 ### Useful Queries
 
@@ -348,11 +363,24 @@ ORDER BY check_time DESC LIMIT 10;
 
 ### Running Tests
 
+**Local (Outside Docker):**
 ```bash
-# Run all tests
-docker-compose run --rm app pytest tests/ -v
+# Windows (Git Bash)
+PYTHONPATH=src python -m pytest tests/ -v
+
+# Linux/Mac  
+PYTHONPATH=src python -m pytest tests/ -v
 
 # With coverage report
+PYTHONPATH=src python -m pytest tests/ --cov=src --cov-report=term-missing
+```
+
+**Docker:**
+```bash
+# Run all tests in container
+docker-compose run --rm app pytest tests/ -v
+
+# With coverage
 docker-compose run --rm app pytest --cov=src tests/
 
 # Specific test file
@@ -366,7 +394,7 @@ tests/test_data_fetcher.py ................ 11 tests
 tests/test_reconciliation_engine.py ....... 12 tests
 tests/test_report_generator.py ............ 26 tests
 
-Total: 49 tests passing in ~18 seconds
+Total: 49 tests passing in ~22 seconds
 ```
 
 **Core Business Logic Coverage:**
@@ -381,6 +409,63 @@ Total: 49 tests passing in ~18 seconds
 - **Integration Tests**: Report generation, file I/O operations
 - **Edge Cases**: Empty datasets, duplicate IDs, large dataset performance
 - **Business Logic**: Financial calculations, risk level determination
+
+---
+
+## CI/CD Pipeline
+
+### Automated Testing & Deployment
+
+GitHub Actions workflow runs on every push to `main` and pull requests.
+
+**Pipeline Jobs:**
+- **Test Job**: Runs 49 unit tests against PostgreSQL 15
+- **Lint Job**: Code quality checks with flake8 and pylint
+- **Docker Job**: Builds and validates container image
+
+**View Pipeline:**
+- Go to Actions tab in your GitHub repository
+- Workflow file: `.github/workflows/ci-cd.yml`
+
+**Pipeline Stages:**
+```yaml
+1. Setup Python 3.9
+2. Install dependencies from requirements.txt
+3. Spin up PostgreSQL service container
+4. Initialize database schema (setup.sql)
+5. Run 49 tests with coverage reporting
+6. Run code quality checks
+7. Build Docker image
+8. Upload artifacts (coverage reports, Docker image)
+```
+
+**Test Coverage:**
+```
+tests/test_data_fetcher.py ................ 11 tests
+tests/test_reconciliation_engine.py ....... 12 tests
+tests/test_report_generator.py ............ 26 tests
+
+Total: 49 tests passing in ~22 seconds
+Coverage: 85%+ on core business logic
+```
+
+**Local Testing (matches CI/CD environment):**
+```bash
+# Windows (Git Bash)
+PYTHONPATH=src python -m pytest tests/ -v
+
+# Linux/Mac
+PYTHONPATH=src python -m pytest tests/ -v --cov=src
+
+# Docker (cross-platform)
+docker-compose run --rm app pytest tests/ -v
+```
+
+**Pipeline Performance:**
+- Average run time: 5-7 minutes
+- Test job: ~3-4 minutes
+- Lint job: ~1-2 minutes (parallel)
+- Docker build: ~2-3 minutes
 
 ---
 
@@ -525,31 +610,101 @@ The schema includes:
 
 ---
 
+## Version Control
+
+### .gitignore Configuration
+
+Critical files excluded from version control:
+```gitignore
+# Environment and secrets (NEVER COMMIT)
+.env
+
+# Generated reports and outputs
+Sample_Output/
+local_reports/
+*.csv
+*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+```
+
+**Security Reminders:**
+- Never commit `.env` file (contains credentials)
+- Never commit `Sample_Output/` (contains transaction data)
+- Use `.env.example` as template (no real credentials)
+- Change default passwords before production deployment
+
+### Git Workflow
+
+```bash
+# Clone repository
+git clone <repository-url>
+cd fintech-reconciliation
+
+# Create environment file
+cp .env.example .env
+# Edit .env with your credentials
+
+# Start development
+docker-compose up -d
+
+# Run tests before committing
+PYTHONPATH=src python -m pytest tests/ -v
+
+# Commit and push (triggers CI/CD)
+git add .
+git commit -m "Your changes"
+git push origin main
+```
+
+---
+
 ## Project Structure
 
 ```
 fintech-reconciliation/
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml             # GitHub Actions pipeline
 ├── src/
 │   ├── __init__.py
-│   ├── main.py                    # CLI entry point
-│   ├── models.py                  # Data models
-│   ├── data_fetcher.py           # API integration
-│   ├── reconciliation_engine.py  # Core business logic
-│   ├── report_generator.py       # Report creation
-│   ├── notification_service.py   # Email alerts
-│   ├── database_manager.py       # PostgreSQL operations
-│   └── aws_manager.py            # S3 integration
+│   ├── main.py                   # CLI entry point
+│   ├── models.py                 # Data models
+│   ├── data_fetcher.py          # API integration
+│   ├── reconciliation_engine.py # Core business logic
+│   ├── report_generator.py      # Report creation
+│   ├── notification_service.py  # Email alerts
+│   ├── database_manager.py      # PostgreSQL operations
+│   └── aws_manager.py           # S3 integration
 ├── tests/
 │   ├── test_data_fetcher.py
 │   ├── test_reconciliation_engine.py
 │   └── test_report_generator.py
-├── Sample_Output/                # Generated reports
-├── docker-compose.yml            # Multi-container orchestration
-├── Dockerfile                    # Application container
-├── setup.sql                     # Database schema
-├── requirements.txt              # Python dependencies
-├── .env.example                  # Environment template
-└── README.md                     # This file
+├── Sample_Output/               # Generated reports
+├── docker-compose.yml           # Multi-container orchestration
+├── Dockerfile                   # Application container
+├── setup.sql                    # Database schema
+├── requirements.txt             # Python dependencies
+├── .env.example                 # Environment template
+├── .gitignore                   # Version control exclusions
+└── README.md                    # This file
 ```
 
 ---
@@ -565,6 +720,7 @@ python-dotenv==1.0.0       # Environment management
 pytest==7.4.0              # Testing framework
 ```
 
+---
 
 ## Support
 
@@ -579,4 +735,3 @@ For issues or questions:
    - Environment details (OS, Docker version)
 
 ---
-
