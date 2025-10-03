@@ -1,5 +1,4 @@
 """
-main.py - FIXED VERSION
 
 Entry point and orchestrator for the FinTech Transaction Reconciliation System.
 
