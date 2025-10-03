@@ -36,4 +36,4 @@ ENV PYTHONPATH=/app/src
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import sys; sys.exit(0)"
 
-CMD ["python", "src/main.py", "--processors", "paypal"]
+CMD ["python", "src/main.py"]

@@ -11,8 +11,8 @@ htmlcov/
 *.log
 .DS_Store
 db_data/
-Sample_Output/
 .vscode
 pyproject.toml
 Local_file
 sanity-check.sh
+reports

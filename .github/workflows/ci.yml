@@ -77,9 +77,6 @@ jobs:
          export PYTHONPATH=${{ github.workspace }}/src:$PYTHONPATH
          pytest tests/ \
           -v \
-          --cov=src.data_fetcher \
-          --cov=src.reconciliation_engine \
-          --cov=src.report_generator \
           --cov-report=term-missing \
           --cov-report=html \
           --cov-fail-under=70 \

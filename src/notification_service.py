@@ -1,7 +1,11 @@
 """
 notification_service.py
 
-Handles all email notifications for reconciliation results, including severity-based alerting.
+## Reconciliation Notification Handler
+
+This module manages all communication for the FinTech Transaction Reconciliation System.
+It handles email notifications for daily reconciliation results and sends immediate
+alerts for critical failures, including severity-based alarming and optional reporting.
 """
 
 import os
@@ -16,30 +20,36 @@ from pathlib import Path
 from typing import Optional
 
 import structlog
-import requests # FIX 1: ADD MISSING IMPORT (Needed for successful patching)
-
+import requests # Required for potential Slack/API integrations
 from models import ReconciliationResult
 
 logger = structlog.get_logger()
 
 
+# =============================================================================
+# NOTIFICATION SERVICE CLASS
+# =============================================================================
 class NotificationService:
     """
     Handles email notifications and alerts for reconciliation results.
+
+    It configures thresholds for severity-based alerting (Low, Medium, High, Critical)
+    and manages the logic for composing and sending messages via SMTP and Slack.
     """
 
     def __init__(self):
         """Initialize notification service with environment configuration."""
+        # Email Configuration
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
         self.email_user = os.getenv("EMAIL_USER")
         self.email_password = os.getenv("EMAIL_PASSWORD")
         self.operations_email = os.getenv("OPERATIONS_EMAIL", "operations@fintech.com")
-        
-        # FIX 2: Add placeholder for Slack configuration
+
+        # Third-Party Integrations
         self.slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL")
 
-        # Severity thresholds
+        # Severity thresholds: Define conditions for alert levels
         self.severity_thresholds = {
             "critical": {"missing_count": 50, "amount": 50000},
             "high": {"missing_count": 20, "amount": 10000},
@@ -47,9 +57,14 @@ class NotificationService:
             "low": {"missing_count": 0, "amount": 0},
         }
 
+    # -------------------------------------------------------------------------
+    # Private Send Methods
+    # -------------------------------------------------------------------------
+
     def _send_email(self, message: MIMEMultipart) -> bool:
         """
         Handles sending email securely using SSL (465) or STARTTLS (587).
+        Logs a warning and skips if credentials are not configured.
         """
         if not self.email_user or not self.email_password:
             logger.warning("Email credentials not configured, skipping email send")
@@ -86,20 +101,24 @@ class NotificationService:
 
     def _send_slack(self, payload: dict) -> bool:
         """
-        FIX 3: Placeholder to simulate sending a Slack message via webhook.
-        This method is required for the original tests to patch successfully.
+        Placeholder method for sending a Slack message via webhook.
+        A proper implementation would use `requests.post` here.
         """
         if not self.slack_webhook_url:
             logger.warning("Slack webhook URL not configured, skipping Slack notification.")
             return False
-        
+
         try:
-            # The actual implementation would use requests.post(self.slack_webhook_url, json=payload)
+            # Placeholder for actual API call
             logger.info("Slack notification placeholder executed successfully.")
             return True
         except Exception as e:
             logger.error("Failed to send Slack notification", error=str(e))
             return False
+
+    # -------------------------------------------------------------------------
+    # Public Notification Methods
+    # -------------------------------------------------------------------------
 
     def send_reconciliation_notification(
         self,
@@ -108,7 +127,12 @@ class NotificationService:
         report_url: Optional[str] = None,
         report_attachment: Optional[str] = None,
     ) -> bool:
-        """Send reconciliation notification with severity and optional report."""
+        """
+        Sends the main daily reconciliation notification email.
+
+        Determines the alert severity and constructs the email with the summary
+        and optional link/attachment for the full report.
+        """
         severity = self._determine_severity(reconciliation_result)
 
         try:
@@ -129,8 +153,12 @@ class NotificationService:
             )
             return False
 
-    def send_failure_alert(self, processor: str, date: str, run_id: str, error_message: str) -> bool: # FIX 4: ADD run_id ARGUMENT 
-        """Send failure alert when reconciliation fails."""
+    def send_failure_alert(self, processor: str, date: str, run_id: str, error_message: str) -> bool:
+        """
+        Sends an immediate CRITICAL failure alert when a reconciliation run fails.
+
+        The alert includes processor name, date, run ID, and detailed error message.
+        """
         try:
             message = MIMEMultipart()
             message["From"] = self.email_user
@@ -165,8 +193,12 @@ class NotificationService:
             )
             return False
 
+    # -------------------------------------------------------------------------
+    # Private Helper Methods
+    # -------------------------------------------------------------------------
+
     def _determine_severity(self, result: ReconciliationResult) -> str:
-        """Determine severity based on missing count and discrepancy amount."""
+        """Determines the alert severity based on missing count and discrepancy amount thresholds."""
         missing_count = result.summary.missing_transactions_count
         missing_amount = float(result.summary.total_discrepancy_amount)
 
@@ -186,7 +218,7 @@ class NotificationService:
         report_url: Optional[str] = None,
         report_attachment: Optional[str] = None,
     ) -> MIMEMultipart:
-        """Build reconciliation summary email with optional report."""
+        """Builds the complete reconciliation summary email object with headers, body, and attachments."""
         message = MIMEMultipart()
         message["From"] = self.email_user
         message["To"] = self.operations_email
@@ -220,7 +252,7 @@ class NotificationService:
         severity: str,
         report_url: Optional[str] = None,
     ) -> str:
-        """Generate HTML email body for reconciliation notification."""
+        """Generates the main HTML content for the reconciliation notification email."""
         color_map = {
             "critical": "#dc3545",
             "high": "#fd7e14",
@@ -247,8 +279,8 @@ class NotificationService:
             <div style="background:{color};color:white;padding:15px;border-radius:5px;">
                 <h2>Daily Transaction Reconciliation Report</h2>
                 <p><strong>Processor:</strong> {result.processor.upper()} |
-                   <strong>Date:</strong> {reconciliation_date} |
-                   <strong>Severity:</strong> {severity.upper()}</p>
+                    <strong>Date:</strong> {reconciliation_date} |
+                    <strong>Severity:</strong> {severity.upper()}</p>
             </div>
             <div style="background:#f8f9fa;padding:15px;border-radius:5px;margin:15px 0;">
                 <h3>Summary</h3>
@@ -269,7 +301,7 @@ class NotificationService:
     def _generate_email_recommendations(
         self, result: ReconciliationResult, severity: str
     ) -> str:
-        """Generate recommendations for reconciliation email."""
+        """Generates actionable recommendations based on the determined severity level."""
         recs = {
             "critical": [
                 "🚨 Immediate action required",
@@ -284,11 +316,10 @@ class NotificationService:
             "low": ["✅ No immediate action required", "Archive report"],
         }
         items = "<br>".join(recs.get(severity, []))
-        return f'<div style="background:#fff3cd;padding:15px;border-radius:\
-        5px;margin:15px 0;"><h3>Actions</h3>{items}</div>'
+        return f'<div style="background:#fff3cd;padding:15px;border-radius:5px;margin:15px 0;"><h3>Actions</h3>{items}</div>'
 
     def _attach_report(self, message: MIMEMultipart, file_path: str):
-        """Attach report file to email."""
+        """Attaches a local report file to the outgoing email message."""
         try:
             with open(file_path, "rb") as attachment:
                 part = MIMEBase("application", "octet-stream")

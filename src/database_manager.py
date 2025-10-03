@@ -1,7 +1,12 @@
 """
-Production-ready database manager for reconciliation system.
-Handles PostgreSQL operations with full transaction safety, UUID support,
-data validation, and comprehensive audit logging.
+database_manager.py
+
+## Production PostgreSQL Manager
+
+This module provides the **DatabaseManager** class, handling all data persistence
+for the reconciliation system. Key features include **full transaction safety**
+via context managers, support for **UUIDs**, efficient **bulk insertion** using
+`psycopg2.extras.execute_values`, and comprehensive **audit logging**.
 """
 
 import json
@@ -18,7 +23,6 @@ import psycopg2.extras
 from psycopg2.extras import RealDictCursor, execute_values
 from structlog import get_logger
 
-# NOTE: Assuming 'models' is available and correctly defines ReconciliationResult, Settings, and Transaction
 from models import ReconciliationResult, Settings, Transaction 
 
 logger = get_logger()
@@ -28,7 +32,7 @@ class DatabaseManager:
     """Production-ready PostgreSQL manager with UUID support and comprehensive validation."""
 
     def __init__(self, settings: Settings = None):
-        """Initialize database configuration from Settings or environment variables."""
+        """Initializes database configuration from provided Settings or environment variables."""
         if settings and getattr(settings, "DB_URL", None):
             self.db_url = settings.DB_URL
         else:
@@ -37,13 +41,19 @@ class DatabaseManager:
             self.dbname = os.getenv("DB_NAME", "fintech_reconciliation")
             self.user = os.getenv("DB_USER", "postgres")
             password = os.getenv("DB_PASSWORD", "")
+            # URL-encode the password to handle special characters
             encoded_password = quote_plus(password) if password else ""
             self.db_url = f"postgresql://{self.user}:{encoded_password}@{self.host}:{self.port}/{self.dbname}"
             print("📌 DB URL being used:", self.db_url)
 
     @contextmanager
     def get_connection(self):
-        """Production-ready connection manager with comprehensive error handling."""
+        """
+        Provides a transactionally safe database connection.
+
+        The connection is automatically rolled back on any exception and closed
+        when exiting the context, ensuring data integrity.
+        """
         conn = None
         if not self.db_url or "None" in self.db_url:
             logger.warning(
@@ -53,13 +63,13 @@ class DatabaseManager:
             return
         try:
             conn = psycopg2.connect(self.db_url)
-            conn.autocommit = False  # Explicit transaction control
+            conn.autocommit = False  # Enforce explicit transaction control
             yield conn
         except psycopg2.Error as exc:
             if conn:
                 conn.rollback()
             logger.error(
-                "Database transaction failed",
+                "Database transaction failed (psycopg2 error)",
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
@@ -74,14 +84,17 @@ class DatabaseManager:
                 conn.close()
 
     # =========================================================================
-    # CORE INTERFACE METHODS (Called by main.py Orchestrator)
+    # CORE INTERFACE METHODS
     # =========================================================================
 
     def create_reconciliation_run(self, date: date, processor: str) -> Optional[str]:
         """
-        [STEP 1: START] Creates an initial reconciliation run record with 'running' status.
-        Uses UPSERT to guarantee idempotency: re-running the same processor/date
-        will update the existing record instead of failing with UniqueViolation.
+        Creates or restarts a reconciliation run record with 'running' status.
+
+        Uses **UPSERT (ON CONFLICT)** logic for idempotency, ensuring the process
+        can be safely re-executed for the same date/processor. If an old run is
+        restarted, its associated missing transactions are first deleted.
+
         Returns the run_id (UUID).
         """
         run_uuid = str(uuid.uuid4())
@@ -92,7 +105,7 @@ class DatabaseManager:
                 with conn.cursor() as cursor:
                     cursor.execute("BEGIN")
 
-                    # First, check if there's an existing run for this date/processor
+                    # 1. Check for existing run (for restart/cleanup logic)
                     cursor.execute(
                         """
                         SELECT id FROM reconciliation_runs
@@ -104,7 +117,7 @@ class DatabaseManager:
 
                     if existing_run:
                         existing_run_id = existing_run[0]
-                        # Delete old missing transactions for this run to prevent duplicates
+                        # Cleanup: Delete old missing transactions before restart
                         cursor.execute(
                             """
                             DELETE FROM missing_transactions
@@ -112,15 +125,14 @@ class DatabaseManager:
                         """,
                             (existing_run_id,),
                         )
-                        deleted_count = cursor.rowcount
-                        if deleted_count > 0:
+                        if cursor.rowcount > 0:
                             logger.info(
                                 "Cleaned up old missing transactions on restart",
                                 run_id=existing_run_id,
-                                deleted_count=deleted_count,
+                                deleted_count=cursor.rowcount,
                             )
 
-                    # Now do the UPSERT
+                    # 2. Perform UPSERT to create new run or update existing one to 'running'
                     cursor.execute(
                         """
                         INSERT INTO reconciliation_runs (
@@ -149,18 +161,17 @@ class DatabaseManager:
                             "reconciliation_system",
                         ),
                     )
-                    
-                    # Store result before attempting to access index
-                    run_result = cursor.fetchone() 
-                    
-                    # FIX for KeyError: 0 (or TypeError)
+
+                    run_result = cursor.fetchone()
+
                     if not run_result:
                         conn.rollback()
                         logger.error("Failed to retrieve ID after UPSERT. Transaction rolled back.")
                         return None
-                        
+
                     run_id = run_result[0]
-                    
+
+                    # 3. Log Audit
                     self._log_audit_event(
                         cursor,
                         action="reconciliation_started_or_restarted",
@@ -180,7 +191,10 @@ class DatabaseManager:
         self, run_id: str, result: ReconciliationResult
     ) -> None:
         """
-        [STEP 2: METRICS] Updates the final reconciliation run record with all metrics and stores missing transactions.
+        Stores all reconciliation metrics and records all missing transactions.
+
+        This is a single, atomic transaction that ensures missing transactions
+        are stored before the run status is updated to 'completed'.
         """
         with self.get_connection() as conn:
             if conn is None:
@@ -189,7 +203,7 @@ class DatabaseManager:
                 with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     cursor.execute("BEGIN")
 
-                    # CRITICAL: Insert missing transactions FIRST (before UPDATE)
+                    # 1. Bulk insert missing transactions (high performance)
                     if result.missing_transactions_details:
                         self._bulk_insert_missing_transactions(
                             cursor, run_id, result.missing_transactions_details
@@ -200,7 +214,7 @@ class DatabaseManager:
                             run_id=run_id,
                         )
 
-                    # NOW do the UPDATE (trigger will find the transactions)
+                    # 2. Update run record with final metrics and status
                     cursor.execute(
                         """
                         UPDATE reconciliation_runs SET
@@ -224,10 +238,10 @@ class DatabaseManager:
                         ),
                     )
 
-                    # Perform data quality checks
+                    # 3. Run final data quality checks
                     self._perform_data_quality_checks(cursor, run_id, result)
 
-                    # Log audit event
+                    # 4. Log Audit
                     self._log_audit_event(
                         cursor,
                         action="reconciliation_metrics_recorded",
@@ -246,14 +260,11 @@ class DatabaseManager:
             except Exception:
                 raise
 
-    def update_s3_report_key(self, run_id: str, s3_key: str):
-        """
-        [STEP 3: S3 KEY] Update S3 report key for a reconciliation run.
-        (FIXED: Now returns True on success to satisfy test assertions).
-        """
+    def update_s3_report_key(self, run_id: str, s3_key: str) -> Optional[bool]:
+        """Updates the S3 report key for a completed reconciliation run."""
         with self.get_connection() as conn:
             if conn is None:
-                return None # Changed from 'return' to 'return None' for explicit typing
+                return None
             try:
                 with conn.cursor() as cursor:
                     cursor.execute(
@@ -273,20 +284,17 @@ class DatabaseManager:
                     )
                     conn.commit()
                     logger.info("Updated S3 report key", run_id=run_id, s3_key=s3_key)
-                    return True # FIX: Explicitly return True for test assertions
+                    return True
             except Exception:
                 raise
 
     def update_reconciliation_status(
         self, run_id: str, status: str, error_message: Optional[str] = None
-    ):
-        """
-        [ERROR HANDLER] Update the status of a reconciliation run.
-        (FIXED: Now returns True on success to satisfy test assertions).
-        """
+    ) -> Optional[bool]:
+        """Updates the status of a reconciliation run, typically used for 'failed' state."""
         with self.get_connection() as conn:
             if conn is None:
-                return None # Changed from 'return' to 'return None' for explicit typing
+                return None
             try:
                 with conn.cursor() as cursor:
                     if status == "failed":
@@ -326,7 +334,7 @@ class DatabaseManager:
                     logger.warning(
                         "Updated run status", run_id=run_id, new_status=status
                     )
-                    return True # FIX: Explicitly return True for test assertions
+                    return True
             except Exception:
                 raise
 
@@ -337,7 +345,11 @@ class DatabaseManager:
     def _bulk_insert_missing_transactions(
         self, cursor, run_id: str, transactions: List[Transaction]
     ):
-        """Efficiently insert missing transactions using execute_values."""
+        """
+        Efficiently inserts missing transactions using psycopg2's execute_values.
+
+        Transactions are validated before insertion.
+        """
         validated_transactions = []
         for txn in transactions:
             if self._validate_transaction(txn):
@@ -382,7 +394,7 @@ class DatabaseManager:
         )
 
     def _validate_transaction(self, txn: Transaction) -> bool:
-        """Validate transaction data against business rules."""
+        """Applies essential data validation checks against business rules."""
         try:
             if not txn.transaction_id or not txn.transaction_id.strip():
                 logger.warning("Invalid transaction: empty transaction_id")
@@ -402,7 +414,7 @@ class DatabaseManager:
                 return False
             if len(txn.currency) != 3 or not txn.currency.isupper():
                 logger.warning(
-                    "Invalid transaction: invalid currency code",
+                    "Invalid transaction: invalid currency code (must be 3 uppercase)",
                     txn_id=txn.transaction_id,
                     currency=txn.currency,
                 )
@@ -414,7 +426,7 @@ class DatabaseManager:
                 return False
             if txn.fee and txn.fee > txn.amount * Decimal("0.5"):
                 logger.warning(
-                    "Invalid transaction: excessive fee",
+                    "Invalid transaction: excessive fee (over 50% of amount)",
                     txn_id=txn.transaction_id,
                     fee=txn.fee,
                     amount=txn.amount,
@@ -423,7 +435,7 @@ class DatabaseManager:
             return True
         except Exception as e:
             logger.warning(
-                "Transaction validation failed",
+                "Transaction validation failed due to internal error",
                 txn_id=getattr(txn, "transaction_id", "unknown"),
                 error=str(e),
             )
@@ -432,10 +444,14 @@ class DatabaseManager:
     def _perform_data_quality_checks(
         self, cursor, run_id: str, result: ReconciliationResult
     ):
-        """Perform data quality validations and store results."""
+        """
+        Performs post-insertion data quality checks to ensure metrics consistency
+        between the application and the database. The results are stored in the
+        `data_quality_checks` table.
+        """
         checks = []
 
-        # Cursor is RealDictCursor, so fetchone returns a dict (keys are column aliases)
+        # Recalculate metrics from the actual data in the database
         cursor.execute(
             """
             SELECT COUNT(*)::integer as txn_count,
@@ -446,17 +462,15 @@ class DatabaseManager:
             (run_id,),
         )
 
+        # Assumes RealDictCursor is used as defined in store_reconciliation_result
         row = cursor.fetchone()
+        actual_count = row["txn_count"]
+        actual_amount = row["total_amount"]
 
-        # Handle both dict (RealDictCursor) and tuple cursor responses
-        # The logic here is sound and handles the RealDictCursor used in store_reconciliation_result
-        if isinstance(row, dict):
-            actual_count = row["txn_count"]
-            actual_amount = row["total_amount"]
-        else:
-            actual_count, actual_amount = row
-
+        # Check 1: Count Consistency
         count_check_passed = actual_count == result.summary.missing_transactions_count
+
+        # Check 2: Amount Consistency (with tolerance for float/decimal conversion safety)
         amount_check_passed = (
             abs(float(actual_amount) - float(result.summary.total_discrepancy_amount))
             <= 0.01
@@ -491,7 +505,7 @@ class DatabaseManager:
             ]
         )
 
-        success_rate = self._calculate_success_rate(result)
+        # Check 3: High Discrepancy Alert
         high_discrepancy = result.summary.total_discrepancy_amount > Decimal("10000")
 
         checks.append(
@@ -503,12 +517,13 @@ class DatabaseManager:
                         result.summary.total_discrepancy_amount
                     ),
                     "threshold": 10000.0,
-                    "success_rate": success_rate,
+                    "success_rate": self._calculate_success_rate(result),
                 },
                 "severity": "critical" if high_discrepancy else "info",
             }
         )
 
+        # Persist all check results
         for check in checks:
             cursor.execute(
                 """
@@ -528,7 +543,7 @@ class DatabaseManager:
             )
 
     def _calculate_success_rate(self, result: ReconciliationResult) -> float:
-        """Calculate reconciliation success rate as percentage."""
+        """Calculates the reconciliation success rate based on transaction counts."""
         if result.summary.processor_transactions == 0:
             return 100.0
         return (
@@ -548,7 +563,7 @@ class DatabaseManager:
         old_values: Dict[str, Any] = None,
         new_values: Dict[str, Any] = None,
     ):
-        """Log comprehensive audit event with JSONB support."""
+        """Logs a comprehensive audit event to the `audit_log` table."""
         cursor.execute(
             """
             INSERT INTO audit_log (
@@ -569,15 +584,15 @@ class DatabaseManager:
         )
 
     def health_check(self) -> bool:
-        """Comprehensive database health check."""
+        """Performs a comprehensive database connectivity and write check."""
         try:
             with self.get_connection() as conn:
                 if conn is None:
                     return False
                 with conn.cursor() as cursor:
-                    # Added a simple SELECT 1 to ensure connectivity before DML
-                    cursor.execute("SELECT 1") 
-                    cursor.execute("SELECT COUNT(*) FROM reconciliation_runs")
+                    # Simple connectivity check
+                    cursor.execute("SELECT 1")
+                    # Write check to system_health table
                     cursor.execute(
                         """
                         INSERT INTO system_health (
@@ -603,7 +618,7 @@ class DatabaseManager:
     def get_reconciliation_history(
         self, processor: str, days: int = 30
     ) -> List[Dict[str, Any]]:
-        """Get reconciliation history for monitoring and trends."""
+        """Retrieves reconciliation run history for a given processor for monitoring and trends."""
         with self.get_connection() as conn:
             if conn is None:
                 return []
@@ -617,4 +632,5 @@ class DatabaseManager:
                 """,
                     (processor, days),
                 )
+                # Convert RealDictRow objects to standard dictionaries before returning
                 return [dict(row) for row in cursor.fetchall()]

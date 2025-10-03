@@ -1,9 +1,11 @@
 """
 models.py
 
-Defines all core data models for the FinTech Transaction Reconciliation System.
-Models are built using Pydantic for robust validation, type safety, and serialization.
-These models serve as the backbone for all business logic, API contracts, and reporting.
+## FinTech Transaction Reconciliation System Data Models
+
+This module defines all core data models for the FinTech Transaction Reconciliation System.
+Models are built using Pydantic for robust validation, type safety, and seamless serialization.
+These models form the backbone for all business logic, API contracts, and financial reporting.
 """
 
 from datetime import date, datetime
@@ -15,9 +17,9 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # 1. System Configuration Model
-# -----------------------------------------------------------------------------
+# =============================================================================
 class Settings(BaseSettings):
     """
     Application configuration loaded from environment variables or .env files.
@@ -75,7 +77,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",  
+        extra="ignore",
     )
 
     @property
@@ -95,9 +97,9 @@ class Settings(BaseSettings):
         return self.AWS_S3_BUCKET_NAME or self.AWS_BUCKET_NAME
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # 2. Core Transaction Data Model
-# -----------------------------------------------------------------------------
+# =============================================================================
 class Transaction(BaseModel):
     """
     Represents a single financial transaction.
@@ -121,9 +123,9 @@ class Transaction(BaseModel):
     fee: Decimal = Field(..., description="Transaction fee charged by processor")
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # 3. Reconciliation Models
-# -----------------------------------------------------------------------------
+# =============================================================================
 class ReconciliationSummary(BaseModel):
     """
     Summary statistics from a reconciliation process.
@@ -166,9 +168,9 @@ class ReconciliationResult(BaseModel):
     )
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # 4. Report Contracts
-# -----------------------------------------------------------------------------
+# =============================================================================
 class ReportBundle(BaseModel):
     """
     Encapsulates all generated reports for a reconciliation run.
@@ -181,9 +183,9 @@ class ReportBundle(BaseModel):
     summary_text: str = Field(..., description="Executive summary text")
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # 5. Database Models (Audit & Compliance)
-# -----------------------------------------------------------------------------
+# =============================================================================
 class ReconciliationRun(BaseModel):
     """
     Represents a reconciliation run record in the database.

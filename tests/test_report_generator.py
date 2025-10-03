@@ -1,6 +1,6 @@
 """
 Unit tests for ReportGenerator
-Tests CSV generation, JSON reports, executive summaries, and financial calculations
+Covers CSV and JSON report generation, executive summaries, financial impact calculations, and recommendations.
 """
 
 import sys
@@ -20,25 +20,24 @@ from report_generator import ReportGenerator
 
 
 class TestReportGenerator:
-    """Test suite for ReportGenerator class"""
+    """Test suite for the ReportGenerator class"""
 
     @pytest.fixture
     def generator(self):
-        """Create a ReportGenerator instance for testing"""
+        """Provides a ReportGenerator instance for testing"""
         return ReportGenerator()
 
     @pytest.fixture
     def temp_output_dir(self):
-        """Create a temporary directory for test outputs"""
+        """Provides a temporary directory for storing test outputs"""
         temp_dir = Path(tempfile.mkdtemp())
         yield temp_dir
-        # Cleanup after test
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
 
     @pytest.fixture
     def sample_reconciliation_result(self):
-        """Create a sample reconciliation result with missing transactions"""
+        """Provides a sample reconciliation result with missing transactions"""
         missing_transactions = [
             Transaction(
                 transaction_id="TXN_STRIPE_20250930_0001",
@@ -83,7 +82,7 @@ class TestReportGenerator:
 
     @pytest.fixture
     def perfect_reconciliation_result(self):
-        """Create a result with no discrepancies"""
+        """Provides a reconciliation result with no discrepancies"""
         summary = ReconciliationSummary(
             processor="paypal",
             reconciliation_date=date(2025, 9, 30),
@@ -101,24 +100,29 @@ class TestReportGenerator:
             missing_transactions_details=[],
         )
 
+    # ---------------------------
+    # Initialization tests
+    # ---------------------------
     def test_generator_initialization(self, generator):
-        """Test ReportGenerator initializes correctly"""
+        """Verifies that the ReportGenerator initializes with the default prefix"""
         assert generator.report_prefix == "reconciliation_report"
 
     def test_generator_custom_prefix(self):
-        """Test custom report prefix"""
+        """Verifies that the ReportGenerator accepts a custom report prefix"""
         generator = ReportGenerator(report_prefix="custom_report")
         assert generator.report_prefix == "custom_report"
 
+    # ---------------------------
+    # Report generation tests
+    # ---------------------------
     def test_generate_all_reports(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test that all reports are generated"""
+        """Verifies that CSV, JSON, and executive summary are generated correctly"""
         csv_path, summary_text, json_path = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
 
-        # Check all files are created
         assert csv_path.exists()
         assert json_path.exists()
         assert isinstance(summary_text, str)
@@ -127,17 +131,16 @@ class TestReportGenerator:
     def test_csv_report_structure(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test CSV report has correct structure and data"""
+        """Validates CSV report structure and content"""
         csv_path, _, _ = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
 
-        # Read and validate CSV
         with open(csv_path, "r") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
-        assert len(rows) == 2  # Two missing transactions
+        assert len(rows) == 2
         assert "transaction_id" in rows[0]
         assert "amount" in rows[0]
         assert "processor_name" in rows[0]
@@ -145,7 +148,7 @@ class TestReportGenerator:
     def test_csv_report_filename(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test CSV filename follows naming convention"""
+        """Ensures CSV filename follows the expected naming convention"""
         csv_path, _, _ = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
@@ -156,24 +159,23 @@ class TestReportGenerator:
     def test_csv_report_empty_discrepancies(
         self, generator, temp_output_dir, perfect_reconciliation_result
     ):
-        """Test CSV generation with no missing transactions"""
+        """Checks CSV generation when there are no missing transactions"""
         csv_path, _, _ = generator.generate_all_reports(
             perfect_reconciliation_result, temp_output_dir
         )
 
-        # CSV should still be created with headers
         assert csv_path.exists()
 
         with open(csv_path, "r") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
-        assert len(rows) == 0  # No data rows, but headers present
+        assert len(rows) == 0
 
     def test_json_report_structure(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test JSON report has correct structure"""
+        """Validates JSON report structure"""
         _, _, json_path = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
@@ -181,7 +183,6 @@ class TestReportGenerator:
         with open(json_path, "r") as f:
             data = json.load(f)
 
-        # Validate structure
         assert "report_metadata" in data
         assert "reconciliation_summary" in data
         assert "missing_transactions" in data
@@ -190,7 +191,7 @@ class TestReportGenerator:
     def test_json_report_metadata(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test JSON report metadata"""
+        """Ensures JSON metadata includes generation timestamp in ISO format"""
         _, _, json_path = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
@@ -199,13 +200,12 @@ class TestReportGenerator:
             data = json.load(f)
 
         assert "generated_at" in data["report_metadata"]
-        # Validate it's a valid ISO timestamp
         datetime.fromisoformat(data["report_metadata"]["generated_at"])
 
     def test_json_report_summary_data(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test JSON summary contains correct data"""
+        """Verifies reconciliation summary data in JSON"""
         _, _, json_path = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
@@ -222,7 +222,7 @@ class TestReportGenerator:
     def test_json_report_filename(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test JSON filename follows naming convention"""
+        """Ensures JSON filename follows the expected naming convention"""
         _, _, json_path = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
@@ -230,15 +230,17 @@ class TestReportGenerator:
         expected_name = "reconciliation_report_stripe_2025-09-30.json"
         assert json_path.name == expected_name
 
+    # ---------------------------
+    # Executive summary tests
+    # ---------------------------
     def test_executive_summary_content(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test executive summary contains all required sections"""
+        """Validates that executive summary includes all required sections"""
         _, summary_text, _ = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
 
-        # Check for key sections
         assert "Executive Summary" in summary_text
         assert "RECONCILIATION OVERVIEW" in summary_text
         assert "FINANCIAL IMPACT" in summary_text
@@ -248,21 +250,36 @@ class TestReportGenerator:
     def test_executive_summary_metrics(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test executive summary contains correct metrics"""
+        """Checks that executive summary displays correct metrics"""
         _, summary_text, _ = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
 
         assert "stripe" in summary_text.lower()
         assert "2025-09-30" in summary_text
-        assert "30" in summary_text  # processor transactions
-        assert "28" in summary_text  # internal transactions
-        assert "2" in summary_text  # missing transactions
+        assert "30" in summary_text
+        assert "28" in summary_text
+        assert "2" in summary_text
 
+    def test_executive_summary_formatting(
+        self, generator, temp_output_dir, sample_reconciliation_result
+    ):
+        """Ensures executive summary is well-formatted with section dividers"""
+        _, summary_text, _ = generator.generate_all_reports(
+            sample_reconciliation_result, temp_output_dir
+        )
+
+        lines = summary_text.split("\n")
+        assert any("=" in line for line in lines)
+        assert any("-" in line for line in lines)
+        assert len(summary_text) > 200
+
+    # ---------------------------
+    # Financial impact tests
+    # ---------------------------
     def test_calculate_financial_impact(self, generator, sample_reconciliation_result):
-        """Test financial impact calculation"""
+        """Validates that financial impact calculation produces expected keys"""
         impact = generator._calculate_financial_impact(sample_reconciliation_result)
-
         assert "total_volume" in impact
         assert "discrepancy_rate" in impact
         assert "fees_at_risk" in impact
@@ -272,24 +289,21 @@ class TestReportGenerator:
     def test_calculate_financial_impact_values(
         self, generator, sample_reconciliation_result
     ):
-        """Test financial impact calculation produces correct values"""
+        """Validates financial impact calculation produces correct values"""
         impact = generator._calculate_financial_impact(sample_reconciliation_result)
-
         assert impact["total_volume"] == 5000.00
-        # discrepancy_rate = 2 / 30 = 0.0667
         assert abs(impact["discrepancy_rate"] - 0.0667) < 0.001
-        # fees_at_risk = sum of fees in missing transactions
         expected_fees = 3.20 + 7.56
         assert abs(impact["fees_at_risk"] - expected_fees) < 0.01
 
     def test_risk_level_low(self, generator):
-        """Test risk level assessment for low discrepancy"""
+        """Ensures risk level is assessed as LOW for minor discrepancies"""
         summary = ReconciliationSummary(
             processor="stripe",
             reconciliation_date=date(2025, 9, 30),
             processor_transactions=10000,
             internal_transactions=9999,
-            missing_transactions_count=1,  # 0.01% discrepancy
+            missing_transactions_count=1,
             total_discrepancy_amount=Decimal("10.00"),
             total_volume_processed=Decimal("100000.00"),
         )
@@ -304,13 +318,13 @@ class TestReportGenerator:
         assert impact["risk_level"] == "LOW"
 
     def test_risk_level_medium(self, generator):
-        """Test risk level assessment for medium discrepancy"""
+        """Ensures risk level is assessed as MEDIUM for moderate discrepancies"""
         summary = ReconciliationSummary(
             processor="stripe",
             reconciliation_date=date(2025, 9, 30),
             processor_transactions=1000,
             internal_transactions=997,
-            missing_transactions_count=3,  # 0.3% discrepancy
+            missing_transactions_count=3,
             total_discrepancy_amount=Decimal("300.00"),
             total_volume_processed=Decimal("10000.00"),
         )
@@ -325,13 +339,13 @@ class TestReportGenerator:
         assert impact["risk_level"] == "MEDIUM"
 
     def test_risk_level_high(self, generator):
-        """Test risk level assessment for high discrepancy"""
+        """Ensures risk level is assessed as HIGH for major discrepancies"""
         summary = ReconciliationSummary(
             processor="stripe",
             reconciliation_date=date(2025, 9, 30),
             processor_transactions=100,
             internal_transactions=94,
-            missing_transactions_count=6,  # 6% discrepancy
+            missing_transactions_count=6,
             total_discrepancy_amount=Decimal("6000.00"),
             total_volume_processed=Decimal("10000.00"),
         )
@@ -348,14 +362,17 @@ class TestReportGenerator:
     def test_compliance_status_compliant(
         self, generator, perfect_reconciliation_result
     ):
-        """Test compliance status when risk is low"""
+        """Ensures compliance status is COMPLIANT for low-risk results"""
         impact = generator._calculate_financial_impact(perfect_reconciliation_result)
         assert impact["compliance_status"] == "COMPLIANT"
 
+    # ---------------------------
+    # Recommendations tests
+    # ---------------------------
     def test_generate_recommendations_with_discrepancies(
         self, generator, sample_reconciliation_result
     ):
-        """Test recommendations when discrepancies exist"""
+        """Ensures appropriate recommendations are generated when discrepancies exist"""
         recommendations = generator._generate_recommendations(
             sample_reconciliation_result
         )
@@ -366,7 +383,7 @@ class TestReportGenerator:
     def test_generate_recommendations_no_discrepancies(
         self, generator, perfect_reconciliation_result
     ):
-        """Test recommendations when no discrepancies"""
+        """Ensures recommendations indicate no action is required when there are no discrepancies"""
         recommendations = generator._generate_recommendations(
             perfect_reconciliation_result
         )
@@ -375,14 +392,14 @@ class TestReportGenerator:
         assert "successfully" in recommendations.lower()
 
     def test_generate_recommendations_high_value(self, generator):
-        """Test recommendations for high-value discrepancies"""
+        """Ensures high-value discrepancies are flagged with priority recommendations"""
         summary = ReconciliationSummary(
             processor="stripe",
             reconciliation_date=date(2025, 9, 30),
             processor_transactions=100,
             internal_transactions=99,
             missing_transactions_count=1,
-            total_discrepancy_amount=Decimal("15000.00"),  # High value
+            total_discrepancy_amount=Decimal("15000.00"),
             total_volume_processed=Decimal("100000.00"),
         )
         result = ReconciliationResult(
@@ -396,26 +413,25 @@ class TestReportGenerator:
         assert "PRIORITY" in recommendations
         assert "payment processor" in recommendations.lower()
 
+    # ---------------------------
+    # Miscellaneous tests
+    # ---------------------------
     def test_output_directory_creation(self, generator, sample_reconciliation_result):
-        """Test that output directory is created if it doesn't exist"""
+        """Verifies output directory is created if it does not exist"""
         temp_dir = Path(tempfile.mkdtemp())
         output_dir = temp_dir / "nested" / "reports"
 
-        # Directory doesn't exist yet
         assert not output_dir.exists()
 
         generator.generate_all_reports(sample_reconciliation_result, output_dir)
-
-        # Should be created
         assert output_dir.exists()
 
-        # Cleanup
         shutil.rmtree(temp_dir)
 
     def test_decimal_serialization_in_json(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test that Decimal values are properly serialized in JSON"""
+        """Ensures Decimal values are properly serialized as numbers in JSON"""
         _, _, json_path = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
@@ -423,7 +439,6 @@ class TestReportGenerator:
         with open(json_path, "r") as f:
             data = json.load(f)
 
-        # All numeric values should be properly serialized (no Decimal objects in JSON)
         assert isinstance(
             data["reconciliation_summary"]["total_discrepancy_amount"], (int, float)
         )
@@ -432,7 +447,7 @@ class TestReportGenerator:
     def test_csv_preserves_decimal_precision(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test that CSV preserves decimal precision for amounts"""
+        """Ensures CSV output preserves decimal precision for amounts and fees"""
         csv_path, _, _ = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
@@ -441,14 +456,13 @@ class TestReportGenerator:
             reader = csv.DictReader(f)
             rows = list(reader)
 
-        # Check first transaction amount
         assert rows[0]["amount"] == "100.00"
         assert rows[0]["fee"] == "3.20"
 
     def test_generate_reports_with_different_processors(
         self, generator, temp_output_dir
     ):
-        """Test report generation for different processors"""
+        """Verifies report generation works for multiple payment processors"""
         for processor in ["stripe", "paypal", "square"]:
             summary = ReconciliationSummary(
                 processor=processor,
@@ -473,6 +487,7 @@ class TestReportGenerator:
             assert processor in csv_path.name
             assert processor in json_path.name
             assert processor in summary_text
+
 
     def test_executive_summary_formatting(
         self, generator, temp_output_dir, sample_reconciliation_result

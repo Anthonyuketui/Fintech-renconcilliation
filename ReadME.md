@@ -158,7 +158,7 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=fintech_reconciliation
 DB_USER=fintech
-DB_PASSWORD=fintech
+DB_PASSWORD=your password
 
 # AWS S3 (Optional - falls back to local storage)
 AWS_ACCESS_KEY_ID=your_key
@@ -171,7 +171,7 @@ SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587  # Use 465 for SSL
 EMAIL_USER=your_email@company.com
 EMAIL_PASSWORD=your_app_password
-OPERATIONS_EMAIL=ops@fintech.com
+OPERATIONS_EMAIL=ops@fintech.com(any mail)
 
 # APIs (Mock data sources)
 PROCESSOR_API_BASE_URL=https://dummyjson.com
@@ -260,7 +260,7 @@ For production deployments, use cron:
 
 ### Sample Email Notification
 
-![Sample Email Screenshot](docs/images/Email-Notifications.png)
+![Sample Email Screenshot](Sample_Output/images/Email-Notifications.png)
 
 Email notifications include:
 - **Subject**: Severity indicator (🚨 CRITICAL, ⚠️ HIGH, 📊 ATTENTION, ✅ INFO)
@@ -315,7 +315,7 @@ Email notifications include:
 
 ### Entity Relationship Diagram
 
-![ERD Diagram](docs/images//Erd.png)
+![ERD Diagram](Sample_Output/images//Erd.png)
 
 **Entity Relationships:**
 - `reconciliation_runs` (1) → (N) `missing_transactions`
@@ -387,7 +387,7 @@ docker-compose run --rm app pytest --cov=src tests/
 docker-compose run --rm app pytest tests/test_reconciliation_engine.py -v
 ```
 
-### Test Coverage
+### Test Coverage(core business Logic)
 
 ```
 tests/test_data_fetcher.py ................ 11 tests
@@ -419,7 +419,7 @@ Total: 49 tests passing in ~22 seconds
 GitHub Actions workflow runs on every push to `main` and pull requests.
 
 **Pipeline Jobs:**
-- **Test Job**: Runs 49 unit tests against PostgreSQL 15
+- **Test Job**: Runs  unit tests against PostgreSQL 15
 - **Lint Job**: Code quality checks with flake8 and pylint
 - **Docker Job**: Builds and validates container image
 
@@ -546,14 +546,10 @@ docker-compose up -d
 
 ```bash
 # Check Sample_Output directory permissions
-ls -la Sample_Output/
-
-# Create directory manually if missing
-mkdir -p Sample_Output
-chmod 755 Sample_Output
+ls -la reports/(your env variable)
 
 # Verify recent reports
-find Sample_Output -name "*.csv" -mtime -1
+find reports -name "*.csv" -mtime -1
 ```
 
 ### AWS S3 Upload Failures
@@ -619,35 +615,10 @@ Critical files excluded from version control:
 # Environment and secrets (NEVER COMMIT)
 .env
 
-# Generated reports and outputs
-Sample_Output/
-local_reports/
-*.csv
-*.json
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-.pytest_cache/
-.coverage
-venv/
-env/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-
-# OS
-.DS_Store
-Thumbs.db
-```
 
 **Security Reminders:**
 - Never commit `.env` file (contains credentials)
-- Never commit `Sample_Output/` (contains transaction data)
+- Never commit `reports/` (contains transaction data)
 - Use `.env.example` as template (no real credentials)
 - Change default passwords before production deployment
 
@@ -673,41 +644,6 @@ git add .
 git commit -m "Your changes"
 git push origin main
 ```
-
----
-
-## Project Structure
-
-```
-fintech-reconciliation/
-├── .github/
-│   └── workflows/
-│       └── ci-cd.yml             # GitHub Actions pipeline
-├── src/
-│   ├── __init__.py
-│   ├── main.py                   # CLI entry point
-│   ├── models.py                 # Data models
-│   ├── data_fetcher.py          # API integration
-│   ├── reconciliation_engine.py # Core business logic
-│   ├── report_generator.py      # Report creation
-│   ├── notification_service.py  # Email alerts
-│   ├── database_manager.py      # PostgreSQL operations
-│   └── aws_manager.py           # S3 integration
-├── tests/
-│   ├── test_data_fetcher.py
-│   ├── test_reconciliation_engine.py
-│   └── test_report_generator.py
-├── Sample_Output/               # Generated reports
-├── docker-compose.yml           # Multi-container orchestration
-├── Dockerfile                   # Application container
-├── setup.sql                    # Database schema
-├── requirements.txt             # Python dependencies
-├── .env.example                 # Environment template
-├── .gitignore                   # Version control exclusions
-└── README.md                    # This file
-```
-
----
 
 ## Dependencies
 

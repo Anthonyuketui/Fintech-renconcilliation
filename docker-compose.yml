@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:15-alpine
@@ -25,13 +27,15 @@ services:
     env_file:
       - .env
     environment:
-      # Only override the host to point to the db service
       DB_HOST: db
+      # Container path for reports (internal to container)
+      REPORT_OUTPUT_DIR: /app/reports
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./Local_file:/app/Local_file
+      # Map host folder (from .env) to container folder inside app
+      - ${REPORT_OUTPUT_DIR}:/app/reports
     networks:
       - fintech-network
 
@@ -40,4 +44,3 @@ volumes:
 
 networks:
   fintech-network:
-    driver: bridge
