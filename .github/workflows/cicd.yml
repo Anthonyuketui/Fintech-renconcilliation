@@ -280,6 +280,33 @@ jobs:
     if: needs.test.outputs.should-deploy == 'true'
     timeout-minutes: 8
     
+    steps:
+    - name: Configure AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Set environment
+      id: env
+      run: |
+        if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
+          echo "env=prod" >> $GITHUB_OUTPUT
+        else
+          echo "env=dev" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Verify deployment
+      run: |
+        echo "Verifying deployment for ${{ steps.env.outputs.env }} environment"
+        # Basic verification that service exists
+        aws ecs describe-services \
+          --cluster fintech-reconciliation-${{ steps.env.outputs.env }} \
+          --services fintech-reconciliation-${{ steps.env.outputs.env }} \
+          --region ${{ env.AWS_REGION }}
+        echo "Deployment verification complete"
+    
   integration-test:
     name: Integration & E2E Tests
     runs-on: ubuntu-latest
@@ -329,14 +356,6 @@ jobs:
           echo "Integration test failed with exit code: $EXIT_CODE"
           exit 1
         fi
-    
-    steps:
-    - name: Configure AWS
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
     
     - name: Set environment
       id: env
