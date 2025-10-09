@@ -191,18 +191,39 @@ jobs:
         BACKEND_FILE="terraform/environments/$ENV/backend.tf"
         
         if [[ ! -f "$BACKEND_FILE" ]] || [[ ! -s "$BACKEND_FILE" ]]; then
-          echo "Backend not configured, running bootstrap..."
-          cd terraform/bootstrap
-          terraform init -input=false
-          terraform apply -auto-approve -input=false
+          echo "Backend not configured, checking for existing resources..."
           
-          # Get outputs and configure backend
-          BUCKET_NAME=$(terraform output -raw s3_bucket_name)
-          DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
+          # Check for existing terraform state bucket
+          EXISTING_BUCKET=$(aws s3api list-buckets --query "Buckets[?contains(Name, 'terraform-state')].Name" --output text | head -1)
           
-          # Create backend.tf
-          mkdir -p "../../environments/$ENV"
-          cat > "../../environments/$ENV/backend.tf" << EOF
+          if [[ ! -z "$EXISTING_BUCKET" ]]; then
+            echo "Found existing S3 bucket: $EXISTING_BUCKET"
+            BUCKET_NAME="$EXISTING_BUCKET"
+            
+            # Check for existing DynamoDB table
+            EXISTING_TABLE=$(aws dynamodb list-tables --query "TableNames[?contains(@, 'terraform-locks')]" --output text | head -1)
+            if [[ ! -z "$EXISTING_TABLE" ]]; then
+              echo "Found existing DynamoDB table: $EXISTING_TABLE"
+              DYNAMODB_TABLE="$EXISTING_TABLE"
+            else
+              echo "No existing DynamoDB table found, using default name"
+              DYNAMODB_TABLE="fintech-reconciliation-terraform-locks"
+            fi
+          else
+            echo "No existing resources found, running bootstrap..."
+            cd terraform/bootstrap
+            terraform init -input=false
+            terraform apply -auto-approve -input=false
+            
+            # Get outputs from new resources
+            BUCKET_NAME=$(terraform output -raw s3_bucket_name)
+            DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
+            cd ../..
+          fi
+          
+          # Create backend.tf with discovered or created resources
+          mkdir -p "environments/$ENV"
+          cat > "environments/$ENV/backend.tf" << EOF
         terraform {
           backend "s3" {
             bucket         = "$BUCKET_NAME"
@@ -213,7 +234,7 @@ jobs:
           }
         }
         EOF
-          echo "Bootstrap complete, backend configured"
+          echo "Backend configured with bucket: $BUCKET_NAME"
         else
           echo "Backend already configured"
         fi
