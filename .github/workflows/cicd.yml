@@ -201,6 +201,7 @@ jobs:
           DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
           
           # Create backend.tf
+          mkdir -p "../../environments/$ENV"
           cat > "../../environments/$ENV/backend.tf" << EOF
         terraform {
           backend "s3" {
