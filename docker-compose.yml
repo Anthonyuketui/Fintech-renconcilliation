@@ -1,18 +1,25 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:15-alpine
     container_name: fintech-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     ports:
-      - "5432:5432"
+      - "5432:5432"  # only needed for development database access
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./setup.sql:/docker-entrypoint-initdb.d/setup.sql:ro
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
@@ -24,18 +31,29 @@ services:
   app:
     build: .
     container_name: fintech-app
+    restart: unless-stopped
     env_file:
       - .env
     environment:
       DB_HOST: db
       # Container path for reports (internal to container)
       REPORT_OUTPUT_DIR: /app/reports
+      # Docker-friendly SMTP settings
+      SMTP_PORT: 465
     depends_on:
       db:
         condition: service_healthy
     volumes:
       # Map host folder (from .env) to container folder inside app
-      - ${REPORT_OUTPUT_DIR}:/app/reports
+      - ./reports:/app/reports
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
     networks:
       - fintech-network
 

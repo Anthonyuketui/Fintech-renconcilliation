@@ -70,7 +70,7 @@ class Settings(BaseSettings):
 
     # Application Configuration
     REPORT_OUTPUT_DIR: Path = Field(
-        default=Path("local_reports"), description="Directory for report outputs"
+        default=Path("reports"), description="Directory for report outputs"
     )
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
 

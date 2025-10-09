@@ -41,7 +41,20 @@ class ReportGenerator:
 
         Returns: (CSV Path, Executive Summary Text, JSON Path)
         """
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Validate and normalize output directory path
+        normalized_path = output_dir.resolve()
+        cwd = Path.cwd()
+        allowed_dirs = [cwd, cwd / "reports", cwd / "local_reports"]
+        
+        is_allowed = any(
+            normalized_path.is_relative_to(allowed_dir) 
+            for allowed_dir in allowed_dirs if allowed_dir.exists()
+        )
+        is_temp = "tmp" in str(normalized_path).lower()
+        
+        if not (is_allowed or is_temp):
+            raise ValueError("Invalid output directory path detected")
+        normalized_path.mkdir(parents=True, exist_ok=True)
 
         # 1. Generate Detailed CSV
         csv_path = self._generate_detailed_csv(result, output_dir)
@@ -66,17 +79,15 @@ class ReportGenerator:
         filename = f"{self.report_prefix}_{result.processor}_{result.reconciliation_date.isoformat()}.csv"
         csv_path = output_dir / filename
 
-        # Convert Pydantic transaction objects to list of dictionaries for DataFrame creation
+        # Convert transaction objects to DataFrame-compatible format
         data = [
             t.model_dump() if hasattr(t, "model_dump") else t.__dict__
             for t in result.missing_transactions_details
         ]
 
         if not data:
-            # If no data, create an empty DataFrame with correct columns derived from the Transaction model
-            df = pd.DataFrame(
-                columns=[field for field in Transaction.__annotations__.keys()]
-            )
+            # Create empty DataFrame with Transaction model columns
+            df = pd.DataFrame(columns=list(Transaction.__annotations__.keys()))
         else:
             df = pd.DataFrame(data)
 
@@ -97,7 +108,7 @@ FinTech Reconciliation Executive Summary
 
 Date: {result.reconciliation_date}
 Processor: {result.processor}
-Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+Report Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
 
 RECONCILIATION OVERVIEW
 -----------------------
@@ -134,26 +145,23 @@ RECOMMENDED ACTIONS
 
         # Serialize Pydantic result object into a standard dictionary structure
         report_data = {
-            "report_metadata": {"generated_at": datetime.now().isoformat()},
+            "report_metadata": {"generated_at": datetime.utcnow().isoformat()},
             "reconciliation_summary": {
                 "date": str(result.reconciliation_date),
                 "processor": result.processor,
                 "processor_transactions": result.summary.processor_transactions,
-                # Convert Decimal fields to float for clean JSON serialization
-                "total_discrepancy_amount": float(
-                    result.summary.total_discrepancy_amount
-                ),
-                "total_volume_processed": float(result.summary.total_volume_processed),
+                # Preserve Decimal precision using string conversion
+                "total_discrepancy_amount": str(result.summary.total_discrepancy_amount),
+                "total_volume_processed": str(result.summary.total_volume_processed),
             },
-            # Ensure transactions are serialized cleanly
             "missing_transactions": [
-                (t.model_dump() if hasattr(t, "model_dump") else t.__dict__)
+                t.model_dump() if hasattr(t, "model_dump") else t.__dict__
                 for t in result.missing_transactions_details
             ],
             "financial_impact": self._calculate_financial_impact(result),
         }
 
-        # Write JSON file, using default=str to handle serialization of Decimal and datetime objects
+        # Write JSON with proper serialization handling
         with open(json_path, "w") as f:
             json.dump(report_data, f, indent=2, default=str)
 
@@ -195,7 +203,15 @@ RECOMMENDED ACTIONS
         }
 
     def _generate_recommendations(self, result: ReconciliationResult) -> str:
-        """Generates actionable recommendations based on reconciliation results."""
+        """
+        Generates actionable recommendations based on reconciliation results.
+        
+        Args:
+            result: ReconciliationResult containing summary and transaction details
+            
+        Returns:
+            Formatted string with newline-separated recommendations
+        """
 
         recommendations = []
 

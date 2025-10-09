@@ -1,12 +1,8 @@
 """
-Core business logic for the FinTech Transaction Reconciliation System.
+Core reconciliation logic for comparing transaction datasets.
 
-## Reconciliation Engine
-
-This module defines the **ReconciliationEngine**, which compares transactions from two
-sources (Processor vs. Internal) to identify missing records and discrepancies.
-It uses efficient hash map lookups for **O(1) average complexity** and ensures
-**financial precision** by using the Decimal type.
+Compares processor and internal transaction records to identify discrepancies.
+Uses hash map indexing for O(1) lookup performance and Decimal for precision.
 """
 
 from __future__ import annotations
@@ -22,26 +18,23 @@ logger = logging.getLogger(__name__)
 
 
 class ReconciliationEngine:
-    """Compares transaction lists and identifies discrepancies using O(1) lookup complexity."""
+    """Compares transaction datasets and identifies missing records."""
 
     def __init__(self) -> None:
-        """Initializes the engine. No internal state is maintained."""
+        """Initialize reconciliation engine."""
         pass
 
     @staticmethod
     def _build_index(transactions: List[Transaction]) -> Dict[str, Transaction]:
         """
-        Creates an index mapping {transaction_id: Transaction} for fast lookups.
-
-        This index facilitates **O(1) lookups** during reconciliation and automatically
-        handles duplicate IDs by logging a warning and keeping the first record.
+        Build transaction index for O(1) lookups.
+        Handles duplicate IDs by keeping the first occurrence.
         """
         index: Dict[str, Transaction] = {}
         for t in transactions:
             if t.transaction_id in index:
-                # Log a warning for duplicate transaction IDs encountered in the source data.
                 logger.warning(
-                    "Duplicate transaction_id %s encountered; only the first is retained.",
+                    "Duplicate transaction_id %s encountered; keeping first occurrence.",
                     t.transaction_id,
                 )
                 continue
@@ -56,34 +49,39 @@ class ReconciliationEngine:
         processor: str,
     ) -> ReconciliationResult:
         """
-        Executes the core reconciliation logic and returns a comprehensive result object.
+        Execute reconciliation between processor and internal transactions.
+        
+        Args:
+            processor_transactions: Transactions from payment processor
+            internal_transactions: Transactions from internal systems
+            run_date: Date of reconciliation run
+            processor: Name of payment processor
+            
+        Returns:
+            ReconciliationResult with summary and missing transaction details
         """
 
-        # --- 1. Indexing and Deduplication ---
+        # Build transaction indexes for O(1) lookup performance
         proc_index = self._build_index(processor_transactions)
         int_index = self._build_index(internal_transactions)
-
-        # Get the unique set of processor transactions for comparison and volume calculation
         unique_proc_txns = list(proc_index.values())
 
         missing_details: List[Transaction] = []
 
-        # --- 2. Identify Missing Transactions (Processor vs. Internal) ---
-        # The primary check is identifying transactions present in the processor's data but missing internally.
+        # Identify missing transactions (in processor but not internal)
         for tid, p_txn in proc_index.items():
             if tid not in int_index:
                 missing_details.append(p_txn)
                 logger.debug("Missing transaction found: %s", tid)
 
-        # --- 3. Financial Totals ---
+        # Calculate financial totals
         total_discrepancy: Decimal = sum(t.amount for t in missing_details)
         total_volume: Decimal = sum(t.amount for t in unique_proc_txns)
 
-        # --- 4. Build Summary Report ---
+        # Build summary
         summary = ReconciliationSummary(
             reconciliation_date=run_date,
             processor=processor,
-            # Report counts based on unique IDs
             processor_transactions=len(unique_proc_txns),
             internal_transactions=len(int_index),
             missing_transactions_count=len(missing_details),
@@ -91,12 +89,11 @@ class ReconciliationEngine:
             total_volume_processed=total_volume,
         )
 
-        # --- 5. Build Final Result Object ---
+        # Build result object
         result = ReconciliationResult(
             reconciliation_date=run_date,
             processor=processor,
             summary=summary,
-            # Serialize the missing transaction list for the final Pydantic model
             missing_transactions_details=[t.model_dump() for t in missing_details],
         )
 

@@ -1,0 +1,4 @@
+# AWS Configuration
+aws_region = "us-east-1"
+
+# Note: Database password is auto-generated and stored in AWS Secrets Manager

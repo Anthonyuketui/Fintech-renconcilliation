@@ -1,0 +1,9 @@
+# AWS Configuration
+aws_region = "us-east-1"
+
+# Email Configuration (REQUIRED)
+operations_email = "your-email@company.com"
+sender_email     = "your-email@company.com"
+
+# Note: Database password is auto-generated and stored in AWS Secrets Manager
+# Note: Database host, name, user are managed by Terraform automatically

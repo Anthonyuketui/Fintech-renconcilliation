@@ -1,13 +1,13 @@
 """
-Entry point and orchestrator for the FinTech Transaction Reconciliation System.
+FinTech Transaction Reconciliation System - Main Entry Point
 
-This script parses CLI arguments, sets up structured logging, initializes service
-classes, and manages the reconciliation workflow for each payment processor.
-Each processor run is isolated to ensure failures are handled gracefully.
+Orchestrates daily reconciliation workflows across payment processors.
+Handles CLI arguments, logging setup, and coordinates service components.
 """
 
 from __future__ import annotations
 import argparse
+import os
 import sys
 from datetime import date
 from typing import List
@@ -15,7 +15,7 @@ import logging
 import structlog
 from dotenv import load_dotenv
 
-# Import service modules
+
 from aws_manager import AWSManager
 from data_fetcher import DataFetcher
 from database_manager import DatabaseManager
@@ -24,13 +24,13 @@ from notification_service import NotificationService
 from reconciliation_engine import ReconciliationEngine
 from report_generator import ReportGenerator
 
-# Load environment variables early
+
 load_dotenv()
 
-# Initialize structured logger
+
 logger = structlog.get_logger()
 
-# Load application settings from environment or .env file
+
 try:
     SETTINGS = Settings()
 except Exception as e:
@@ -42,14 +42,30 @@ except Exception as e:
 
 class ReconciliationSystem:
     """
-    Manages the end-to-end reconciliation workflow for all payment processors.
-
-    Initializes dependencies and coordinates reconciliation, reporting, and notifications.
+    Coordinates reconciliation workflow across payment processors.
+    
+    This class orchestrates the complete reconciliation process including:
+    - Data fetching from processor and internal APIs
+    - Transaction reconciliation and discrepancy identification
+    - Report generation in CSV and JSON formats
+    - S3 upload with local fallback
+    - Email notifications with severity-based alerting
+    - Database audit logging and error tracking
+    
     Each processor run is isolated to prevent cascading failures.
     """
 
-    def __init__(self):
-        """Initialize all service components and ensure report directory exists."""
+    def __init__(self) -> None:
+        """
+        Initialize service components and create report directory.
+        
+        Sets up all required service instances:
+        - AWSManager for S3 operations with local fallback
+        - DatabaseManager for PostgreSQL audit trails
+        - NotificationService for email/Slack alerts
+        - ReportGenerator for CSV/JSON report creation
+        - ReconciliationEngine for transaction matching
+        """
         SETTINGS.REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         self.aws_manager = AWSManager(
             bucket_name=SETTINGS.AWS_BUCKET_NAME, region=SETTINGS.AWS_REGION
@@ -63,68 +79,85 @@ class ReconciliationSystem:
         self, processor_name: str, target_date_str: str
     ) -> bool:
         """
-        Execute the reconciliation workflow for one processor.
-
-        Implements isolated failure principle: errors in one processor do not affect others.
-        Workflow includes auditing, data fetch, reconciliation, reporting, archival, and notifications.
+        Execute reconciliation workflow for a single processor.
+        Errors are isolated and do not affect other processors.
         """
         logger.info(
             "Starting reconciliation", processor=processor_name, date=target_date_str
         )
         run_id = None
         target_date = date.fromisoformat(target_date_str)
-        local_report_dir = SETTINGS.REPORT_OUTPUT_DIR / f"{processor_name}_{target_date_str}"
+        local_report_dir = (
+            SETTINGS.REPORT_OUTPUT_DIR / f"{processor_name}_{target_date_str}"
+        )
         csv_path = json_path = None
         s3_uploaded = False
 
         try:
-            # Step 1: Audit Start
-            run_id = self.database_manager.create_reconciliation_run(target_date, processor_name)
+            # Create audit record
+            run_id = self.database_manager.create_reconciliation_run(
+                target_date, processor_name
+            )
             if run_id is None:
-                logger.error("Could not start database audit record. Aborting processor run.")
+                logger.error(
+                    "Could not start database audit record. Aborting processor run."
+                )
                 return False
             logger.debug("Database run record created", run_id=run_id)
 
-            # Step 2: Data Acquisition
+            # Fetch transaction data
             fetcher = DataFetcher(
                 processor_api_base_url=SETTINGS.PROCESSOR_API_BASE_URL,
                 internal_api_base_url=SETTINGS.INTERNAL_API_BASE_URL,
                 processor_name=processor_name,
             )
             proc_txns = fetcher.fetch_processor_data(run_date=target_date)
-            internal_txns = fetcher.fetch_internal_data(processor_txns=proc_txns, run_date=target_date)
+            internal_txns = fetcher.fetch_internal_data(
+                processor_txns=proc_txns, run_date=target_date
+            )
             fetcher.close()
-            logger.info("Data fetched successfully", proc_count=len(proc_txns), internal_count=len(internal_txns))
+            logger.info(
+                "Data fetched successfully",
+                proc_count=len(proc_txns),
+                internal_count=len(internal_txns),
+            )
 
-            # Step 3: Core Reconciliation
-            result = self.reconciliation_engine.reconcile(proc_txns, internal_txns, target_date, processor_name)
+            # Perform reconciliation
+            result = self.reconciliation_engine.reconcile(
+                proc_txns, internal_txns, target_date, processor_name
+            )
 
-            # Step 4: Store metrics and missing transactions
+            # Store results
             self.database_manager.store_reconciliation_result(run_id, result)
             logger.debug("Reconciliation metrics and details stored in DB.")
 
-            # Step 5: Reporting
-            csv_path, summary_text, json_path = self.report_generator.generate_all_reports(result, local_report_dir)
+            # Generate reports
+            csv_path, summary_text, json_path = (
+                self.report_generator.generate_all_reports(result, local_report_dir)
+            )
             logger.info(
                 "Reports generated locally",
                 csv_path=str(csv_path.as_posix()),
                 json_path=str(json_path.as_posix()),
             )
 
-            # Step 6: Archival (AWS S3)
-            s3_location = presigned_url = None
+            # Upload to S3
+            s3_location = s3_key = None
             try:
                 s3_location = self.aws_manager.upload_report(csv_path)
                 s3_uploaded = self.aws_manager.is_s3_path(s3_location)
 
                 if s3_uploaded:
                     self.database_manager.update_s3_report_key(run_id, s3_location)
-                    presigned_url = self.aws_manager.generate_presigned_url(s3_location)
+                    # Store S3 key for notification service
+                    s3_key = f"s3://{self.aws_manager.bucket_name}/{s3_location}"
                     logger.info("Report uploaded to S3", s3_key=s3_location)
                 else:
                     local_path = s3_location.replace("file://", "")
                     self.database_manager.update_s3_report_key(run_id, local_path)
-                    logger.info("Report stored locally (S3 unavailable)", local_path=local_path)
+                    logger.info(
+                        "Report stored locally (S3 unavailable)", local_path=local_path
+                    )
 
             except Exception as e:
                 logger.warning(
@@ -134,15 +167,25 @@ class ReconciliationSystem:
                 )
                 s3_uploaded = False
 
-            # Step 7: Communication (Email notifications)
+            # Send notifications
             try:
-                if s3_uploaded and presigned_url:
-                    notification_sent = self.notification_service.send_reconciliation_notification(
-                        result, target_date, report_url=presigned_url, report_attachment=None
+                if s3_uploaded and s3_key:
+                    notification_sent = (
+                        self.notification_service.send_reconciliation_notification(
+                            result,
+                            target_date,
+                            report_url=s3_key,
+                            report_attachment=None,
+                        )
                     )
                 else:
-                    notification_sent = self.notification_service.send_reconciliation_notification(
-                        result, target_date, report_url=None, report_attachment=str(csv_path)
+                    notification_sent = (
+                        self.notification_service.send_reconciliation_notification(
+                            result,
+                            target_date,
+                            report_url=None,
+                            report_attachment=str(csv_path),
+                        )
                     )
 
                 if notification_sent:
@@ -169,20 +212,28 @@ class ReconciliationSystem:
                 exc_info=True,
             )
             if run_id:
-                self.database_manager.update_reconciliation_status(run_id, "failed", str(e))
+                self.database_manager.update_reconciliation_status(
+                    run_id, "failed", str(e)
+                )
 
-            # Attempt to send failure alert
+
             try:
-                self.notification_service.send_failure_alert(processor_name, target_date_str, error_msg)
+                self.notification_service.send_failure_alert(
+                    processor_name, target_date_str, run_id or "unknown", error_msg
+                )
             except Exception as alert_err:
                 logger.warning("Could not send failure alert", error=str(alert_err))
 
             return False
 
         finally:
-            # Cleanup local files if successfully uploaded to S3
-            if s3_uploaded:
-                for path in [csv_path, json_path]:
+            # Clean up local files after successful S3 upload
+            cleanup_enabled = os.getenv('CLEANUP_LOCAL_REPORTS', 'false').lower() == 'true'
+            logger.debug("Cleanup check", cleanup_enabled=cleanup_enabled, s3_uploaded=s3_uploaded)
+            
+            if cleanup_enabled and s3_uploaded:
+                cleanup_paths = [csv_path, json_path]
+                for path in cleanup_paths:
                     if path and path.exists():
                         try:
                             path.unlink()
@@ -199,11 +250,16 @@ class ReconciliationSystem:
             else:
                 logger.info("Local reports preserved", directory=str(local_report_dir.as_posix()))
 
-    def run(self, target_date: str, processors: List[str]):
+    def run(self, target_date: str, processors: List[str]) -> None:
         """
-        Run reconciliation workflow for all specified processors.
-
-        Logs overall success or failure after completion.
+        Run reconciliation for all specified processors.
+        
+        Args:
+            target_date: ISO format date string (YYYY-MM-DD)
+            processors: List of processor names to reconcile
+            
+        Each processor is processed independently to prevent
+        failures in one processor from affecting others.
         """
         overall_success = True
         for processor in processors:
@@ -216,11 +272,16 @@ class ReconciliationSystem:
             logger.warning("One or more processor reconciliations failed. Check logs.")
 
 
-def setup_logging():
+def setup_logging() -> None:
     """
-    Configure structured logging for monitoring and debugging.
-
-    Uses structlog to produce JSON-formatted logs.
+    Configure structured JSON logging for production observability.
+    
+    Sets up structlog with:
+    - Timestamp formatting
+    - Log level inclusion
+    - Stack trace rendering
+    - Exception info formatting
+    - JSON output for log aggregation
     """
     structlog.configure(
         processors=[
@@ -259,13 +320,13 @@ Examples:
         "--processors",
         type=str,
         nargs="+",
-        required=True,
-        help="List of processors to reconcile (e.g., stripe paypal).",
+        default=["stripe", "paypal", "square"],
+        help="List of processors to reconcile (e.g., stripe paypal). Defaults to all processors.",
     )
 
     args = parser.parse_args()
 
-    # Validate date format
+
     try:
         date.fromisoformat(args.date)
     except ValueError:

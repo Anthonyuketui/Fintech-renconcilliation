@@ -16,3 +16,84 @@ pyproject.toml
 Local_file
 sanity-check.sh
 reports
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/terraform.tfvars
+**/*.tfplan
+**/.terraform.tfstate.lock.info
+**/tfplan-*
+**/*.tfstate.*.backup
+**/backend.tf
+
+# AWS
+.aws/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+
+# Test and Coverage Files
+.coverage
+htmlcov/
+coverage.xml
+*.coverage
+test_aws.py
+
+# Generated Reports (contains sensitive transaction data)
+reports/
+src/reports/
+
+# Development Files
+API.md
+
+# Python Cache and Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Temporary Files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~

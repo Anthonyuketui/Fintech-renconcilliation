@@ -1,0 +1,12 @@
+# Copy this file to backend.tf after running bootstrap.sh
+# Update bucket and dynamodb_table with values from bootstrap output
+
+terraform {
+  backend "s3" {
+    bucket         = "your-bucket-name-from-bootstrap"
+    key            = "dev/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "your-dynamodb-table-from-bootstrap"
+    encrypt        = true
+  }
+}

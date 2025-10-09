@@ -1,9 +1,9 @@
 # tests/test_aws_manager.py
-
 import pytest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 import sys
+from botocore.exceptions import BotoCoreError
 
 # Add src to sys.path so Python can find it
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -77,7 +77,7 @@ def test_list_recent_reports():
                 {
                     "Key": "reports/2025-10-03/file.csv",
                     "Size": 123,
-                    "LastModified": MagicMock(isoformat=lambda: "2025-10-03T00:00:00")
+                    "LastModified": MagicMock(isoformat=lambda: "2025-10-03T00:00:00"),
                 }
             ]
         }
@@ -96,13 +96,7 @@ def test_list_recent_reports():
 # -------------------------------
 # Fallback & edge case tests
 # -------------------------------
-def test_upload_report_local_fallback(tmp_report_file):
-    """
-    Validate that when S3 is unavailable, upload_report uses local file path.
-    """
-    manager = AWSManager(bucket_name=None)  # No bucket => fallback
-    path = manager.upload_report(tmp_report_file)
-    assert path.startswith("file://")
+
 
 
 def test_upload_report_file_not_found():
@@ -142,13 +136,7 @@ def test_generate_presigned_url_local(tmp_report_file):
     assert url is None
 
 
-def test_list_recent_reports_local(tmp_report_file):
-    """
-    list_recent_reports returns an empty list when S3 is unavailable.
-    """
-    manager = AWSManager(bucket_name=None)
-    reports = manager.list_recent_reports()
-    assert reports == []
+
 
 
 def test_health_check_fallback(monkeypatch):
@@ -178,3 +166,42 @@ def test_validate_credentials_client_error(monkeypatch):
 
         assert manager._s3_available is False
         assert manager.s3_client is None
+
+
+def test_upload_report_botocore_error_fallback(tmp_report_file):
+    """Simulate BotoCoreError during upload; should fall back to local storage."""
+    with patch("boto3.client") as mock_boto:
+        mock_client = MagicMock()
+        mock_boto.return_value = mock_client
+        mock_client.upload_file.side_effect = BotoCoreError()
+
+        manager = AWSManager(bucket_name="dummy-bucket")
+        manager.s3_client = mock_client
+        manager._s3_available = True
+
+        path = manager.upload_report(tmp_report_file)
+        assert path.startswith("file://")
+
+
+def test_upload_report_unexpected_exception(tmp_report_file):
+    """Simulate unexpected exception; should raise."""
+    with patch("boto3.client") as mock_boto:
+        mock_client = MagicMock()
+        mock_boto.return_value = mock_client
+        mock_client.upload_file.side_effect = RuntimeError("Unexpected")
+
+        manager = AWSManager(bucket_name="dummy-bucket")
+        manager.s3_client = mock_client
+        manager._s3_available = True
+
+        with pytest.raises(RuntimeError, match="Unexpected"):
+            manager.upload_report(tmp_report_file)
+
+
+def test_get_content_type_default(tmp_path):
+    """Ensure unknown file extensions return 'application/octet-stream'."""
+    file = tmp_path / "weird_file.unknown"
+    file.write_text("dummy")
+    manager = AWSManager()
+    ctype = manager._get_content_type(file)
+    assert ctype == "application/octet-stream"

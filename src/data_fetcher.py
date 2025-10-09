@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import random
 import time
 from datetime import date, datetime
@@ -15,11 +16,8 @@ logger = logging.getLogger(__name__)
 
 class DataFetcher:
     """
-    Retrieves transaction data from payment processor APIs and internal systems.
-
-    For this demo, public APIs (dummyjson, jsonplaceholder) are used and transformed
-    into realistic transaction records. In production, this would connect directly
-    to Stripe, Square, or PayPal APIs.
+    Retrieves transaction data from payment processors and internal systems.
+    Uses public APIs for demo; production would connect to actual payment APIs.
     """
 
     def __init__(
@@ -29,7 +27,6 @@ class DataFetcher:
         processor_name: str,
         max_retries: int = 3,
     ) -> None:
-        """Initialize DataFetcher with API endpoints, processor name, and retry policy."""
         self.processor_api_base_url = processor_api_base_url.rstrip("/")
         self.internal_api_base_url = internal_api_base_url.rstrip("/")
         self.processor_name = processor_name.lower()
@@ -40,10 +37,8 @@ class DataFetcher:
         self, url: str, timeout: int = 30
     ) -> requests.Response:
         """
-        Perform HTTP GET requests with exponential backoff retry logic.
-
-        Network interruptions are common; retries improve reliability without
-        overwhelming failing services.
+        HTTP request with exponential backoff retry logic.
+        Improves reliability for network failures and API timeouts.
         """
         last_exception = None
         for attempt in range(self.max_retries):
@@ -70,17 +65,16 @@ class DataFetcher:
                 if attempt < self.max_retries - 1:
                     wait_time = 2**attempt
                     logger.warning(
-                        f"Request error (attempt {attempt + 1}/{self.max_retries}): {e}. "
+                        f"Request error (attempt {attempt + 1}/{self.max_retries}): {str(e)}. "
                         f"Retrying in {wait_time}s..."
                     )
                     time.sleep(wait_time)
                 else:
                     logger.error(
-                        f"Request failed after {self.max_retries} attempts: {e}"
+                        f"Request failed after {self.max_retries} attempts: {str(e)}"
                     )
                     raise
 
-        # Fallback in case no response was returned
         if last_exception:
             raise last_exception
         raise requests.RequestException("Request failed for unknown reason")
@@ -89,61 +83,83 @@ class DataFetcher:
         self, run_date: Optional[date] = None
     ) -> List[Transaction]:
         """
-        Fetch transactions from the payment processor.
-
-        For this demo, dummy product data is converted to transactions. In production,
-        this would query actual processor endpoints and paginate through all transactions.
+        Fetch transaction data from payment processor.
+        Uses pagination with safety limits to prevent infinite loops.
         """
         if run_date is None:
             run_date = date.today()
 
+        page_size = int(os.getenv("PROCESSOR_API_PAGE_SIZE", 50))
         transactions: List[Transaction] = []
+        page = 1
+        max_pages = 100  # Pagination safety limit
+        start_time = time.time()
+        max_duration = 300  # Pagination timeout in seconds
 
-        try:
-            url = f"{self.processor_api_base_url}/products"
-            response = self._make_request_with_retry(url)
-            data = response.json()
+        while page <= max_pages:
+            if time.time() - start_time > max_duration:
+                logger.error(
+                    f"Pagination timeout after {max_duration}s, stopping at page {page}"
+                )
+                break
+            
+            url = f"{self.processor_api_base_url}/products?page={page}&limit={page_size}"
+            logger.info(f"Fetching page {page} with page size {page_size}")
 
-            products = data.get("products", [])[:30]  # Limit to 30 for demo
+            try:
+                response = self._make_request_with_retry(url)
+                data = response.json()
 
-            for idx, product in enumerate(products, 1):
-                try:
-                    amount_decimal = Decimal(str(product["price"])).quantize(
-                        Decimal("0.01")
-                    )
-                    fee_decimal = (
-                        amount_decimal * Decimal("0.029") + Decimal("0.30")
-                    ).quantize(Decimal("0.01"))
+                products = data.get("products", [])
+                logger.info(f"Fetched {len(products)} products on page {page}")
 
-                    trans_id = f"TXN_{self.processor_name.upper()}_{run_date.strftime('%Y%m%d')}_{idx:04d}"
+                if not products:
+                    logger.info("No more products to fetch; ending pagination.")
+                    break
 
-                    transaction = Transaction(
-                        transaction_id=trans_id,
-                        processor_name=self.processor_name,
-                        amount=amount_decimal,
-                        currency="USD",
-                        status="completed",
-                        merchant_id=f"MERCH_{product['id']:03d}",
-                        transaction_date=datetime.utcnow(),
-                        reference_number=f"REF_{self.processor_name.upper()}_{idx}",
-                        fee=fee_decimal,
-                    )
-                    transactions.append(transaction)
+                for idx, product in enumerate(products, 1):
+                    try:
+                        amount_decimal = Decimal(str(product["price"])).quantize(
+                            Decimal("0.01")
+                        )
+                        fee_decimal = (
+                            amount_decimal * Decimal("0.029") + Decimal("0.30")
+                        ).quantize(Decimal("0.01"))
 
-                except (TypeError, ValidationError, KeyError) as exc:
-                    # Skip malformed records
-                    logger.warning(f"Skipping invalid processor record: {exc}")
-                    continue
+                        page_offset = (page - 1) * page_size
+                        trans_id = f"TXN_{self.processor_name.upper()}_{run_date.strftime('%Y%m%d')}_{page_offset + idx:04d}"
 
-        except requests.Timeout:
-            logger.error(f"Processor API timed out: {self.processor_api_base_url}")
-            raise
-        except requests.RequestException as e:
-            logger.error(f"Failed to fetch processor data: {e}")
-            raise
+                        transaction = Transaction(
+                            transaction_id=trans_id,
+                            processor_name=self.processor_name,
+                            amount=amount_decimal,
+                            currency="USD",
+                            status="completed",
+                            merchant_id=f"MERCH_{product['id']:03d}",
+                            transaction_date=datetime.utcnow(),
+                            reference_number=f"REF_{self.processor_name.upper()}_{page_offset + idx}",
+                            fee=fee_decimal,
+                        )
+                        transactions.append(transaction)
+
+                    except (TypeError, ValidationError, KeyError) as exc:
+                        logger.warning(f"Skipping invalid processor record: {exc}")
+                        continue
+
+                page += 1
+
+            except requests.HTTPError as e:
+                logger.error(f"HTTP error when fetching processor data: {e}")
+                raise
+            except requests.RequestException as e:
+                logger.error(f"Request exception when fetching processor data: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error when fetching processor data: {e}")
+                raise
 
         logger.info(
-            f"Fetched {len(transactions)} transactions from {self.processor_name.upper()}"
+            f"Fetched total {len(transactions)} transactions from {self.processor_name.upper()}"
         )
         return transactions
 
@@ -154,9 +170,7 @@ class DataFetcher:
     ) -> List[Transaction]:
         """
         Fetch internal transaction records.
-
-        Simulates missing transactions (80-95% capture rate) to mimic real-world
-        reconciliation scenarios where some transactions fail to be captured internally.
+        Simulates realistic capture rate (80-95%) to create reconciliation scenarios.
         """
         if run_date is None:
             run_date = date.today()
@@ -170,10 +184,12 @@ class DataFetcher:
             url = f"{self.internal_api_base_url}/posts"
             self._make_request_with_retry(url)
 
-            capture_rate = random.uniform(0.80, 0.95)
+            # Simulate realistic internal capture rate (80-95%)
+            capture_rate = random.uniform(0.80, 0.95)  # nosec B311
             num_to_capture = int(len(processor_txns) * capture_rate)
+
             captured_indices = sorted(
-                random.sample(range(len(processor_txns)), num_to_capture)
+                random.sample(range(len(processor_txns)), num_to_capture)  # nosec B311
             )
 
             logger.info(
@@ -189,7 +205,6 @@ class DataFetcher:
                     fee_decimal = (
                         amount_decimal * Decimal("0.02") + Decimal("0.30")
                     ).quantize(Decimal("0.01"))
-
                     transaction = Transaction(
                         transaction_id=processor_txn.transaction_id,
                         processor_name=self.processor_name,
@@ -198,7 +213,7 @@ class DataFetcher:
                         status="completed",
                         merchant_id=processor_txn.merchant_id,
                         transaction_date=processor_txn.transaction_date,
-                        reference_number=f"INT_{proc_idx+1:04d}",
+                        reference_number=f"INT_{processor_txn.reference_number}",
                         fee=fee_decimal,
                     )
                     transactions.append(transaction)
@@ -207,20 +222,33 @@ class DataFetcher:
                     logger.warning(f"Skipping invalid internal record: {exc}")
                     continue
 
-        except requests.Timeout:
-            logger.error(f"Internal API timed out: {self.internal_api_base_url}")
+        except requests.Timeout as e:
+            logger.error(f"Timeout when fetching internal data: {e}")
             raise
         except requests.RequestException as e:
-            logger.error(f"Failed to fetch internal data: {e}")
+            logger.error(f"Request exception when fetching internal data: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error when fetching internal data: {e}")
             raise
 
-        logger.info(f"Fetched {len(transactions)} transactions from internal API")
+        logger.info(
+            f"Fetched {len(transactions)} internal transactions for {self.processor_name.upper()}"
+        )
         return transactions
 
-    def close(self):
-        """
-        Close the requests session to release connection pools.
+    def __enter__(self) -> 'DataFetcher':
+        """Context manager entry."""
+        return self
 
-        Important for long-running services to avoid resource leaks.
-        """
-        self.session.close()
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit with session cleanup."""
+        self.close()
+
+    def close(self) -> None:
+        """Close the requests session."""
+        if hasattr(self, 'session') and self.session:
+            try:
+                self.session.close()
+            except Exception as e:
+                logger.warning(f"Error closing session: {e}")

@@ -23,7 +23,7 @@ import psycopg2.extras
 from psycopg2.extras import RealDictCursor, execute_values
 from structlog import get_logger
 
-from models import ReconciliationResult, Settings, Transaction 
+from models import ReconciliationResult, Settings, Transaction
 
 logger = get_logger()
 
@@ -44,7 +44,15 @@ class DatabaseManager:
             # URL-encode the password to handle special characters
             encoded_password = quote_plus(password) if password else ""
             self.db_url = f"postgresql://{self.user}:{encoded_password}@{self.host}:{self.port}/{self.dbname}"
-            print("📌 DB URL being used:", self.db_url)
+            logger.info(
+                "Database connection configured",
+                host=self.host,
+                port=self.port,
+                dbname=self.dbname,
+            )
+        
+        # Auto-initialize database schema if tables don't exist
+        self._initialize_database()
 
     @contextmanager
     def get_connection(self):
@@ -166,7 +174,9 @@ class DatabaseManager:
 
                     if not run_result:
                         conn.rollback()
-                        logger.error("Failed to retrieve ID after UPSERT. Transaction rolled back.")
+                        logger.error(
+                            "Failed to retrieve ID after UPSERT. Transaction rolled back."
+                        )
                         return None
 
                     run_id = run_result[0]
@@ -578,10 +588,58 @@ class DatabaseManager:
                 record_id,
                 json.dumps(old_values or {}),
                 json.dumps(new_values or {}),
-                os.getenv("USER", "system"),
+                os.getenv("AUDIT_USER_ID", "fintech_system"),
                 "fintech_reconciliation_system",
             ),
         )
+
+    def _initialize_database(self):
+        """Initialize database schema if tables don't exist."""
+        try:
+            with self.get_connection() as conn:
+                if conn is None:
+                    logger.warning("Cannot initialize database - no connection")
+                    return
+                
+                with conn.cursor() as cursor:
+                    # Check if main table exists
+                    cursor.execute(
+                        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'reconciliation_runs')"
+                    )
+                    table_exists = cursor.fetchone()[0]
+                    
+                    if not table_exists:
+                        logger.info("Database tables not found, initializing schema...")
+                        # Read and execute setup.sql
+                        # Try multiple possible locations
+                        possible_paths = [
+                            '/app/setup.sql',  # Docker container
+                            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'setup.sql'),  # Local dev
+                            'setup.sql'  # Current directory
+                        ]
+                        
+                        setup_sql_path = None
+                        for path in possible_paths:
+                            if os.path.exists(path):
+                                setup_sql_path = path
+                                break
+                        
+                        if setup_sql_path:
+                            with open(setup_sql_path, 'r') as f:
+                                setup_sql = f.read()
+                            # Execute the entire SQL script at once
+                            if setup_sql.strip():
+                                cursor.execute(setup_sql)
+                                conn.commit()
+                                logger.info(f"Database schema initialized successfully from {setup_sql_path}")
+                            else:
+                                logger.error(f"setup.sql file is empty: {setup_sql_path}")
+                        else:
+                            logger.error(f"setup.sql not found in any of these locations: {possible_paths}")
+                    else:
+                        logger.info("Database schema already exists")
+        except Exception as e:
+            logger.error("Failed to initialize database schema", error=str(e))
 
     def health_check(self) -> bool:
         """Performs a comprehensive database connectivity and write check."""
@@ -627,10 +685,10 @@ class DatabaseManager:
                     """
                     SELECT * FROM reconciliation_runs
                     WHERE processor_name = %s
-                    AND run_date >= CURRENT_DATE - INTERVAL '%s days'
+                    AND run_date >= CURRENT_DATE - INTERVAL %s
                     ORDER BY run_date DESC
                 """,
-                    (processor, days),
+                    (processor, f"{days} days"),
                 )
                 # Convert RealDictRow objects to standard dictionaries before returning
                 return [dict(row) for row in cursor.fetchall()]

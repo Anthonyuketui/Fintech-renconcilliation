@@ -117,7 +117,10 @@ class TestReconciliationEngine:
 
         assert result.summary.missing_transactions_count == 1
         assert len(result.missing_transactions_details) == 1
-        assert result.missing_transactions_details[0].transaction_id == "TXN_STRIPE_20250930_0002"
+        assert (
+            result.missing_transactions_details[0].transaction_id
+            == "TXN_STRIPE_20250930_0002"
+        )
 
     def test_reconcile_calculates_discrepancy_amount(
         self, engine, sample_processor_transactions, sample_internal_transactions
@@ -207,7 +210,9 @@ class TestReconciliationEngine:
                 fee=Decimal("6.20"),
             ),
         ]
-        result = engine.reconcile(duplicate_transactions, [], date(2025, 9, 30), "stripe")
+        result = engine.reconcile(
+            duplicate_transactions, [], date(2025, 9, 30), "stripe"
+        )
         assert result.summary.processor_transactions == 1
         assert result.summary.missing_transactions_count == 1
 
@@ -233,7 +238,9 @@ class TestReconciliationEngine:
         self, engine, sample_processor_transactions
     ):
         """Missing transaction details are fully preserved in result."""
-        result = engine.reconcile(sample_processor_transactions, [], date(2025, 9, 30), "stripe")
+        result = engine.reconcile(
+            sample_processor_transactions, [], date(2025, 9, 30), "stripe"
+        )
         for txn in result.missing_transactions_details:
             assert txn.transaction_id is not None
             assert txn.amount > 0
@@ -257,12 +264,15 @@ class TestReconciliationEngine:
                 transaction_date=datetime(2025, 9, 30, 10, 0, 0),
                 reference_number=f"REF_{i}",
                 fee=Decimal("3.20"),
-            ) for i in range(1000)
+            )
+            for i in range(1000)
         ]
         internal_set = processor_set[:990]  # 10 missing
 
         start = time.time()
-        result = engine.reconcile(processor_set, internal_set, date(2025, 9, 30), "stripe")
+        result = engine.reconcile(
+            processor_set, internal_set, date(2025, 9, 30), "stripe"
+        )
         elapsed = time.time() - start
 
         assert result.summary.missing_transactions_count == 10
@@ -271,7 +281,9 @@ class TestReconciliationEngine:
     # ---------------------------
     # Internal Helper Methods
     # ---------------------------
-    def test_build_index_creates_correct_mapping(self, engine, sample_processor_transactions):
+    def test_build_index_creates_correct_mapping(
+        self, engine, sample_processor_transactions
+    ):
         """_build_index returns correct mapping of transaction_id to Transaction."""
         index = engine._build_index(sample_processor_transactions)
         assert len(index) == 3

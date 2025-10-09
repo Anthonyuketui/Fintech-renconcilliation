@@ -25,6 +25,7 @@ RUN useradd -m fintech && chown -R fintech:fintech /app
 # Copy application code
 COPY --chown=fintech:fintech src/ ./src/
 COPY --chown=fintech:fintech tests/ ./tests/
+COPY --chown=fintech:fintech setup.sql ./
 
 # Switch to non-root user
 USER fintech
@@ -34,6 +35,6 @@ ENV PYTHONPATH=/app/src
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)"
+    CMD python -c "from src.database_manager import DatabaseManager; dm = DatabaseManager(); exit(0 if dm.health_check() else 1)"
 
-CMD ["python", "src/main.py"]
+CMD ["python", "src/main.py", "--processors", "stripe", "paypal", "square"]

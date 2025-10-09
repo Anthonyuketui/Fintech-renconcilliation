@@ -440,7 +440,7 @@ class TestReportGenerator:
             data = json.load(f)
 
         assert isinstance(
-            data["reconciliation_summary"]["total_discrepancy_amount"], (int, float)
+            data["reconciliation_summary"]["total_discrepancy_amount"], str
         )
         assert isinstance(data["financial_impact"]["total_volume"], (int, float))
 
@@ -488,11 +488,10 @@ class TestReportGenerator:
             assert processor in json_path.name
             assert processor in summary_text
 
-
-    def test_executive_summary_formatting(
+    def test_executive_summary_format_validation(
         self, generator, temp_output_dir, sample_reconciliation_result
     ):
-        """Test executive summary is well-formatted"""
+        """Test executive summary format validation"""
         _, summary_text, _ = generator.generate_all_reports(
             sample_reconciliation_result, temp_output_dir
         )
