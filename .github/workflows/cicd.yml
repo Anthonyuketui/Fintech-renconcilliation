@@ -190,54 +190,37 @@ jobs:
         ENV=${{ steps.env.outputs.env }}
         BACKEND_FILE="terraform/environments/$ENV/backend.tf"
         
-        if [[ ! -f "$BACKEND_FILE" ]] || [[ ! -s "$BACKEND_FILE" ]]; then
-          echo "Backend not configured, checking for existing resources..."
+        # Use bucket name from GitHub secrets or create new one
+        if [[ -n "${{ secrets.TERRAFORM_STATE_BUCKET }}" ]]; then
+          BUCKET_NAME="${{ secrets.TERRAFORM_STATE_BUCKET }}"
+          DYNAMODB_TABLE="fintech-reconciliation-terraform-locks"
+          echo "Using existing bucket from secrets: $BUCKET_NAME"
+        else
+          echo "No bucket in secrets, running bootstrap..."
+          cd terraform/bootstrap
+          terraform init -input=false
+          terraform apply -auto-approve -input=false
           
-          # Check for existing terraform state bucket
-          EXISTING_BUCKET=$(aws s3api list-buckets --query "Buckets[?contains(Name, 'terraform-state')].Name" --output text | head -1)
-          
-          if [[ ! -z "$EXISTING_BUCKET" ]]; then
-            echo "Found existing S3 bucket: $EXISTING_BUCKET"
-            BUCKET_NAME="$EXISTING_BUCKET"
-            
-            # Check for existing DynamoDB table
-            EXISTING_TABLE=$(aws dynamodb list-tables --query "TableNames[?contains(@, 'terraform-locks')]" --output text | head -1)
-            if [[ ! -z "$EXISTING_TABLE" ]]; then
-              echo "Found existing DynamoDB table: $EXISTING_TABLE"
-              DYNAMODB_TABLE="$EXISTING_TABLE"
-            else
-              echo "No existing DynamoDB table found, using default name"
-              DYNAMODB_TABLE="fintech-reconciliation-terraform-locks"
-            fi
-          else
-            echo "No existing resources found, running bootstrap..."
-            cd terraform/bootstrap
-            terraform init -input=false
-            terraform apply -auto-approve -input=false
-            
-            # Get outputs from new resources
-            BUCKET_NAME=$(terraform output -raw s3_bucket_name)
-            DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
-            cd ../..
-          fi
-          
-          # Create backend.tf with discovered or created resources
-          mkdir -p "environments/$ENV"
-          cat > "environments/$ENV/backend.tf" << EOF
+          BUCKET_NAME=$(terraform output -raw s3_bucket_name)
+          DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
+          echo "Created new bucket: $BUCKET_NAME"
+          echo "Add this to GitHub secrets as TERRAFORM_STATE_BUCKET: $BUCKET_NAME"
+          cd ../..
+        fi
+        
+        # Create backend.tf
+        mkdir -p "environments/$ENV"
+        cat > "environments/$ENV/backend.tf" << EOF
         terraform {
           backend "s3" {
             bucket         = "$BUCKET_NAME"
-            key            = "fintech-reconciliation/$ENV/terraform.tfstate"
+            key            = "$ENV/terraform.tfstate"
             region         = "${{ env.AWS_REGION }}"
             dynamodb_table = "$DYNAMODB_TABLE"
             encrypt        = true
           }
         }
         EOF
-          echo "Backend configured with bucket: $BUCKET_NAME"
-        else
-          echo "Backend already configured"
-        fi
     
     - name: Deploy infrastructure
       working-directory: terraform/environments/${{ steps.env.outputs.env }}
