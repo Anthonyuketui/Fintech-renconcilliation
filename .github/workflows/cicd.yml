@@ -420,5 +420,4 @@ jobs:
         echo "Security: Scanned"
         echo "Tests: Passed"
         echo "Integration: Verified"
-        echo "Total Duration: ~35 minutes"
         echo "Status: Production ready"
