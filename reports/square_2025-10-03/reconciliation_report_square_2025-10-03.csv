@@ -1,3 +1,0 @@
-transaction_id,processor_name,amount,currency,status,merchant_id,transaction_date,reference_number,fee
-TXN_SQUARE_20251003_0019,square,9.99,USD,completed,MERCH_019,2025-10-03 12:26:14.693554,REF_SQUARE_19,0.59
-TXN_SQUARE_20251003_0021,square,1.49,USD,completed,MERCH_021,2025-10-03 12:26:14.693803,REF_SQUARE_21,0.34
