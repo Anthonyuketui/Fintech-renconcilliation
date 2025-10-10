@@ -1,0 +1,66 @@
+{
+  "report_metadata": {
+    "generated_at": "2025-10-03T12:25:57.741113"
+  },
+  "reconciliation_summary": {
+    "date": "2025-10-03",
+    "processor": "stripe",
+    "processor_transactions": 30,
+    "total_discrepancy_amount": 815.96,
+    "total_volume_processed": 6577.5
+  },
+  "missing_transactions": [
+    {
+      "transaction_id": "TXN_STRIPE_20251003_0005",
+      "processor_name": "stripe",
+      "amount": "8.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_005",
+      "transaction_date": "2025-10-03 12:25:55.582064",
+      "reference_number": "REF_STRIPE_5",
+      "fee": "0.56"
+    },
+    {
+      "transaction_id": "TXN_STRIPE_20251003_0015",
+      "processor_name": "stripe",
+      "amount": "799.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_015",
+      "transaction_date": "2025-10-03 12:25:55.582992",
+      "reference_number": "REF_STRIPE_15",
+      "fee": "23.50"
+    },
+    {
+      "transaction_id": "TXN_STRIPE_20251003_0023",
+      "processor_name": "stripe",
+      "amount": "2.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_023",
+      "transaction_date": "2025-10-03 12:25:55.583589",
+      "reference_number": "REF_STRIPE_23",
+      "fee": "0.39"
+    },
+    {
+      "transaction_id": "TXN_STRIPE_20251003_0029",
+      "processor_name": "stripe",
+      "amount": "3.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_029",
+      "transaction_date": "2025-10-03 12:25:55.584106",
+      "reference_number": "REF_STRIPE_29",
+      "fee": "0.42"
+    }
+  ],
+  "financial_impact": {
+    "total_volume": 6577.5,
+    "discrepancy_rate": 0.13333333333333333,
+    "fees_at_risk": 24.87,
+    "risk_level": "HIGH",
+    "compliance_status": "NEEDS_REVIEW",
+    "delay_risk": "LOW"
+  }
+}

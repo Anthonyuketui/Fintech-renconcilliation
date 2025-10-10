@@ -1,0 +1,44 @@
+{
+  "report_metadata": {
+    "generated_at": "2025-10-03T12:26:16.207643"
+  },
+  "reconciliation_summary": {
+    "date": "2025-10-03",
+    "processor": "square",
+    "processor_transactions": 30,
+    "total_discrepancy_amount": 11.48,
+    "total_volume_processed": 6577.5
+  },
+  "missing_transactions": [
+    {
+      "transaction_id": "TXN_SQUARE_20251003_0019",
+      "processor_name": "square",
+      "amount": "9.99",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_019",
+      "transaction_date": "2025-10-03 12:26:14.693554",
+      "reference_number": "REF_SQUARE_19",
+      "fee": "0.59"
+    },
+    {
+      "transaction_id": "TXN_SQUARE_20251003_0021",
+      "processor_name": "square",
+      "amount": "1.49",
+      "currency": "USD",
+      "status": "completed",
+      "merchant_id": "MERCH_021",
+      "transaction_date": "2025-10-03 12:26:14.693803",
+      "reference_number": "REF_SQUARE_21",
+      "fee": "0.34"
+    }
+  ],
+  "financial_impact": {
+    "total_volume": 6577.5,
+    "discrepancy_rate": 0.06666666666666667,
+    "fees_at_risk": 0.93,
+    "risk_level": "HIGH",
+    "compliance_status": "NEEDS_REVIEW",
+    "delay_risk": "LOW"
+  }
+}

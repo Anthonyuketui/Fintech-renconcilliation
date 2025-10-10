@@ -1,99 +1,42 @@
-__pycache__/
-*.pyc
-*.pyo
-local_reports/
-venv
+# Environment files
 .env
-.pytest_cache/
-coverage.xml
-.coverage
-htmlcov/
-*.log
-.DS_Store
-db_data/
-.vscode
-pyproject.toml
-Local_file
-sanity-check.sh
-reports
+.env.local
 
-# Terraform
-**/.terraform/
-**/.terraform.lock.hcl
-**/terraform.tfstate
-**/terraform.tfstate.backup
-**/terraform.tfvars
-**/*.tfplan
-**/.terraform.tfstate.lock.info
-**/tfplan-*
-**/*.tfstate.*.backup
-**/backend.tf
-
-# AWS
-.aws/
-
-# IDE
-.idea/
-*.swp
-*.swo
-
-# OS
-Thumbs.db
-
-# Test and Coverage Files
-.coverage
-htmlcov/
-coverage.xml
-*.coverage
-test_aws.py
-
-# Generated Reports (contains sensitive transaction data)
-reports/
-src/reports/
-
-# Development Files
-API.md
-
-# Python Cache and Bytecode
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environments
-venv/
 env/
-ENV/
+venv/
 .venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.coverage
+htmlcov/
+.pytest_cache/
 
-# Jupyter Notebooks
-.ipynb_checkpoints
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform/environments/*/backend.tf
 
-# PyCharm
-.idea/
-
-# VS Code
+# IDE
 .vscode/
-
-# Temporary Files
-*.tmp
-*.temp
+.idea/
 *.swp
 *.swo
-*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+.dockerignore

@@ -249,6 +249,9 @@ jobs:
         # Initialize Terraform backend
         terraform init -input=false -reconfigure
         
+        # Standard Terraform deployment
+        echo "Deploying infrastructure..."
+        
         # Plan and apply infrastructure changes
         terraform plan -out=tfplan -input=false
         if [[ "${{ steps.env.outputs.env }}" == "prod" ]]; then

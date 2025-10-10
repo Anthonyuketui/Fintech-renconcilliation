@@ -1,0 +1,3 @@
+transaction_id,processor_name,amount,currency,status,merchant_id,transaction_date,reference_number,fee
+TXN_PAYPAL_20251003_0004,paypal,12.99,USD,completed,MERCH_004,2025-10-03 12:26:03.816882,REF_PAYPAL_4,0.68
+TXN_PAYPAL_20251003_0012,paypal,2499.99,USD,completed,MERCH_012,2025-10-03 12:26:03.823102,REF_PAYPAL_12,72.80
