@@ -347,15 +347,19 @@ jobs:
         
         echo "Running integration test via ECS task..."
         
-        # Get available subnets and security groups from VPC
-        SUBNETS=$(aws ec2 describe-subnets \
+        # Get available subnets and security groups from same VPC
+        SUBNET_INFO=$(aws ec2 describe-subnets \
           --filters "Name=tag:Name,Values=*fintech-reconciliation-dev*public*" \
-          --query 'Subnets[0].SubnetId' --output text)
+          --query 'Subnets[0].[SubnetId,VpcId]' --output text)
+        
+        SUBNETS=$(echo "$SUBNET_INFO" | awk '{print $1}')
+        VPC_ID=$(echo "$SUBNET_INFO" | awk '{print $2}')
         
         SECURITY_GROUP=$(aws ec2 describe-security-groups \
-          --filters "Name=tag:Name,Values=*fintech-reconciliation-dev-ecs*" \
+          --filters "Name=tag:Name,Values=*fintech-reconciliation-dev-ecs*" "Name=vpc-id,Values=$VPC_ID" \
           --query 'SecurityGroups[0].GroupId' --output text)
         
+        echo "Using VPC: $VPC_ID"
         echo "Using subnet: $SUBNETS"
         echo "Using security group: $SECURITY_GROUP"
         
