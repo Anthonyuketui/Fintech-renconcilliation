@@ -220,14 +220,16 @@ jobs:
         # Initialize Terraform backend
         terraform init -input=false -reconfigure
         
-        # Handle existing resources by importing them
-        echo "Checking for existing resources..."
+        # Handle conflicting existing resources
+        echo "Checking for conflicting resources..."
         ENV=${{ steps.env.outputs.env }}
         
-        # Import existing DB subnet group if it exists
+        # Delete existing DB subnet group if it exists (from different VPC)
         if aws rds describe-db-subnet-groups --db-subnet-group-name "fintech-reconciliation-$ENV-db-subnet-group" --region us-east-1 >/dev/null 2>&1; then
-          echo "Importing existing DB subnet group..."
-          terraform import module.rds.aws_db_subnet_group.main "fintech-reconciliation-$ENV-db-subnet-group" || true
+          echo "Deleting conflicting DB subnet group from different VPC..."
+          aws rds delete-db-subnet-group --db-subnet-group-name "fintech-reconciliation-$ENV-db-subnet-group" --region us-east-1 || true
+          echo "Waiting for deletion to complete..."
+          sleep 10
         fi
         
         # Plan and apply infrastructure changes
