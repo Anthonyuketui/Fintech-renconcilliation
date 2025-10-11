@@ -343,14 +343,26 @@ jobs:
         # Test ECS task execution
         CLUSTER_NAME="fintech-reconciliation-dev"
         TASK_DEF="fintech-reconciliation-dev"
+        CONTAINER_NAME="fintech-reconciliation-dev"
         
         echo "Running integration test via ECS task..."
+        
+        # Get VPC configuration from ECS service
+        VPC_CONFIG=$(aws ecs describe-services \
+          --cluster $CLUSTER_NAME \
+          --services $CLUSTER_NAME \
+          --query 'services[0].networkConfiguration.awsvpcConfiguration' \
+          --output json)
+        
+        SUBNETS=$(echo $VPC_CONFIG | jq -r '.subnets | join(",")')
+        SECURITY_GROUPS=$(echo $VPC_CONFIG | jq -r '.securityGroups | join(",")')
+        
         TASK_ARN=$(aws ecs run-task \
           --cluster $CLUSTER_NAME \
           --task-definition $TASK_DEF \
           --launch-type FARGATE \
-          --network-configuration "awsvpcConfiguration={subnets=[$(cd terraform/environments/dev && terraform output -raw public_subnet_ids | tr -d '[]" ' | tr ',' ' ')],securityGroups=[$(cd terraform/environments/dev && terraform output -raw ecs_security_group_id | tr -d '"')],assignPublicIp=ENABLED}" \
-          --overrides '{"containerOverrides":[{"name":"fintech-reconciliation","command":["python","src/main.py","--processors","stripe","--date","2025-01-01"]}]}' \
+          --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=ENABLED}" \
+          --overrides "{\"containerOverrides\":[{\"name\":\"$CONTAINER_NAME\",\"command\":[\"python\",\"src/main.py\",\"--processors\",\"stripe\",\"--date\",\"2025-01-01\"]}]}" \
           --query 'tasks[0].taskArn' --output text)
         
         echo "Integration test task: $TASK_ARN"
