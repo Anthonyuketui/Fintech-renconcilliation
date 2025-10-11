@@ -347,21 +347,23 @@ jobs:
         
         echo "Running integration test via ECS task..."
         
-        # Get VPC configuration from ECS service
-        VPC_CONFIG=$(aws ecs describe-services \
-          --cluster $CLUSTER_NAME \
-          --services $CLUSTER_NAME \
-          --query 'services[0].networkConfiguration.awsvpcConfiguration' \
-          --output json)
+        # Get available subnets and security groups from VPC
+        SUBNETS=$(aws ec2 describe-subnets \
+          --filters "Name=tag:Name,Values=*fintech-reconciliation-dev*public*" \
+          --query 'Subnets[0].SubnetId' --output text)
         
-        SUBNETS=$(echo $VPC_CONFIG | jq -r '.subnets | join(",")')
-        SECURITY_GROUPS=$(echo $VPC_CONFIG | jq -r '.securityGroups | join(",")')
+        SECURITY_GROUP=$(aws ec2 describe-security-groups \
+          --filters "Name=tag:Name,Values=*fintech-reconciliation-dev-ecs*" \
+          --query 'SecurityGroups[0].GroupId' --output text)
+        
+        echo "Using subnet: $SUBNETS"
+        echo "Using security group: $SECURITY_GROUP"
         
         TASK_ARN=$(aws ecs run-task \
           --cluster $CLUSTER_NAME \
           --task-definition $TASK_DEF \
           --launch-type FARGATE \
-          --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=ENABLED}" \
+          --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" \
           --overrides "{\"containerOverrides\":[{\"name\":\"$CONTAINER_NAME\",\"command\":[\"python\",\"src/main.py\",\"--processors\",\"stripe\",\"--date\",\"2025-01-01\"]}]}" \
           --query 'tasks[0].taskArn' --output text)
         
