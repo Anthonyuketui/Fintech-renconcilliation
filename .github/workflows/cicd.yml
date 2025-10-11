@@ -242,6 +242,23 @@ jobs:
         docker push $ECR_URL:${{ github.sha }}
         docker push $ECR_URL:latest
     
+    - name: Setup SES email verification
+      run: |
+        # Check if email is already verified
+        VERIFICATION_STATUS=$(aws ses get-identity-verification-attributes \
+          --identities ${{ secrets.OPERATIONS_EMAIL }} \
+          --query 'VerificationAttributes."${{ secrets.OPERATIONS_EMAIL }}".VerificationStatus' \
+          --output text 2>/dev/null || echo "NotFound")
+        
+        if [[ "$VERIFICATION_STATUS" != "Success" ]]; then
+          echo "Sending SES email verification request to ${{ secrets.OPERATIONS_EMAIL }}"
+          aws ses verify-email-identity --email-address ${{ secrets.OPERATIONS_EMAIL }} --region ${{ env.AWS_REGION }}
+          echo "⚠️  MANUAL ACTION REQUIRED: Check your email and click the verification link"
+          echo "📧 Verification email sent to ${{ secrets.OPERATIONS_EMAIL }}"
+        else
+          echo "✅ Email ${{ secrets.OPERATIONS_EMAIL }} is already verified"
+        fi
+    
     - name: Deployment summary
       run: |
         # Verify task definition
@@ -305,18 +322,23 @@ jobs:
         CLUSTER_NAME="fintech-reconciliation-dev"
         TASK_DEF="fintech-reconciliation-dev"
         
-        # Get network configuration
-        SUBNET_INFO=$(aws ec2 describe-subnets \
-          --filters "Name=tag:Name,Values=*fintech-reconciliation-dev*public*" \
-          --query 'Subnets[0].[SubnetId,VpcId]' --output text)
+        # Get RDS VPC configuration
+        RDS_VPC=$(aws rds describe-db-instances \
+          --db-instance-identifier fintech-reconciliation-dev \
+          --query 'DBInstances[0].DBSubnetGroup.VpcId' --output text)
         
-        SUBNETS=$(echo "$SUBNET_INFO" | awk '{print $1}')
-        VPC_ID=$(echo "$SUBNET_INFO" | awk '{print $2}')
+        # Get subnet and security group from same VPC as RDS
+        SUBNETS=$(aws ec2 describe-subnets \
+          --filters "Name=vpc-id,Values=$RDS_VPC" "Name=tag:Name,Values=*public*" \
+          --query 'Subnets[0].SubnetId' --output text)
         
-        # Get newest ECS security group
         SECURITY_GROUP=$(aws ec2 describe-security-groups \
-          --filters "Name=tag:Name,Values=*fintech-reconciliation-dev-ecs*" "Name=vpc-id,Values=$VPC_ID" \
-          --query 'SecurityGroups | sort_by(@, &GroupName) | [-1].GroupId' --output text)
+          --filters "Name=tag:Name,Values=*fintech-reconciliation-dev-ecs*" "Name=vpc-id,Values=$RDS_VPC" \
+          --query 'SecurityGroups[0].GroupId' --output text)
+        
+        echo "Using RDS VPC: $RDS_VPC"
+        echo "Using subnet: $SUBNETS"
+        echo "Using security group: $SECURITY_GROUP"
         
         # Run integration test
         TASK_ARN=$(aws ecs run-task \
