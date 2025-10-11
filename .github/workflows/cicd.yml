@@ -184,18 +184,27 @@ jobs:
           echo "password=${{ secrets.DB_PASSWORD_DEV }}" >> $GITHUB_OUTPUT
         fi
     
-    - name: Verify Terraform backend configuration
+    - name: Create Terraform backend configuration
       run: |
         ENV=${{ steps.env.outputs.env }}
-        BACKEND_FILE="terraform/environments/$ENV/backend.tf"
+        BUCKET_NAME="${{ secrets.TERRAFORM_STATE_BUCKET }}"
         
-        if [[ ! -f "$BACKEND_FILE" ]]; then
-          echo "ERROR: backend.tf not found at $BACKEND_FILE"
-          echo "Please copy backend.tf.example to backend.tf and configure your bucket name"
+        if [[ -z "$BUCKET_NAME" ]]; then
+          echo "ERROR: TERRAFORM_STATE_BUCKET secret not configured"
           exit 1
         fi
         
-        echo "Backend configuration found: $BACKEND_FILE"
+        cat > "terraform/environments/$ENV/backend.tf" << EOF
+        terraform {
+          backend "s3" {
+            bucket         = "$BUCKET_NAME"
+            key            = "$ENV/terraform.tfstate"
+            region         = "us-east-1"
+            dynamodb_table = "terraform-locks"
+            encrypt        = true
+          }
+        }
+        EOF
     
     - name: Deploy infrastructure
       working-directory: terraform/environments/${{ steps.env.outputs.env }}
