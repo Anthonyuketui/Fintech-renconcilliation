@@ -33,7 +33,7 @@ USER fintech
 # Set Python path
 ENV PYTHONPATH=/app/src
 
-# Health check
+# Health checkk
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "from src.database_manager import DatabaseManager; dm = DatabaseManager(); exit(0 if dm.health_check() else 1)"
 
