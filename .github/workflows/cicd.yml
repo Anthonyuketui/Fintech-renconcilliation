@@ -187,24 +187,28 @@ jobs:
     - name: Create Terraform backend configuration
       run: |
         ENV=${{ steps.env.outputs.env }}
-        BUCKET_NAME="${{ secrets.TERRAFORM_STATE_BUCKET }}"
+        TERRAFORM_STATE_BUCKET='${{ secrets.TERRAFORM_STATE_BUCKET }}'
         
-        if [[ -z "$BUCKET_NAME" ]]; then
+        if [[ -z "$TERRAFORM_STATE_BUCKET" ]]; then
           echo "ERROR: TERRAFORM_STATE_BUCKET secret not configured"
           exit 1
         fi
         
-        cat > "terraform/environments/$ENV/backend.tf" << EOF
+        cat > "terraform/environments/$ENV/backend.tf" << 'EOF'
         terraform {
           backend "s3" {
-            bucket         = "$BUCKET_NAME"
-            key            = "$ENV/terraform.tfstate"
+            bucket         = "BUCKET_PLACEHOLDER"
+            key            = "ENV_PLACEHOLDER/terraform.tfstate"
             region         = "us-east-1"
             dynamodb_table = "terraform-locks"
             encrypt        = true
           }
         }
         EOF
+        
+        # Replace placeholders with actual values
+        sed -i "s/BUCKET_PLACEHOLDER/$TERRAFORM_STATE_BUCKET/g" "terraform/environments/$ENV/backend.tf"
+        sed -i "s/ENV_PLACEHOLDER/$ENV/g" "terraform/environments/$ENV/backend.tf"
     
     - name: Deploy infrastructure
       working-directory: terraform/environments/${{ steps.env.outputs.env }}
@@ -216,8 +220,15 @@ jobs:
         # Initialize Terraform backend
         terraform init -input=false -reconfigure
         
-        # Standard Terraform deployment
-        echo "Deploying infrastructure..."
+        # Handle existing resources by importing them
+        echo "Checking for existing resources..."
+        ENV=${{ steps.env.outputs.env }}
+        
+        # Import existing DB subnet group if it exists
+        if aws rds describe-db-subnet-groups --db-subnet-group-name "fintech-reconciliation-$ENV-db-subnet-group" --region us-east-1 >/dev/null 2>&1; then
+          echo "Importing existing DB subnet group..."
+          terraform import module.rds.aws_db_subnet_group.main "fintech-reconciliation-$ENV-db-subnet-group" || true
+        fi
         
         # Plan and apply infrastructure changes
         terraform plan -out=tfplan -input=false
