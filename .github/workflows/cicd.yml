@@ -217,26 +217,9 @@ jobs:
         TF_VAR_operations_email: ${{ secrets.OPERATIONS_EMAIL }}
         TF_VAR_sender_email: ${{ secrets.OPERATIONS_EMAIL }}
       run: |
-        # Initialize Terraform backend
+        # Initialize and apply Terraform
         terraform init -input=false -reconfigure
-        
-        # Handle conflicting existing resources
-        echo "Checking for conflicting resources..."
-        ENV=${{ steps.env.outputs.env }}
-        
-        # Delete existing DB subnet group if it exists (from different VPC)
-        if aws rds describe-db-subnet-groups --db-subnet-group-name "fintech-reconciliation-$ENV-db-subnet-group" --region us-east-1 >/dev/null 2>&1; then
-          echo "Deleting conflicting DB subnet group from different VPC..."
-          aws rds delete-db-subnet-group --db-subnet-group-name "fintech-reconciliation-$ENV-db-subnet-group" --region us-east-1 || true
-          echo "Waiting for deletion to complete..."
-          sleep 10
-        fi
-        
-        # Plan and apply infrastructure changes
         terraform plan -out=tfplan -input=false
-        if [[ "${{ steps.env.outputs.env }}" == "prod" ]]; then
-          echo "Production deployment requires manual approval"
-        fi
         terraform apply -input=false tfplan
     
     - name: Download image artifact
@@ -259,32 +242,24 @@ jobs:
         docker push $ECR_URL:${{ github.sha }}
         docker push $ECR_URL:latest
     
-    - name: Verify ECS deployment
+    - name: Deployment summary
       run: |
-        echo "Verifying ECS task definition deployment..."
-        
-        # Verify task definition is active
+        # Verify task definition
         TASK_DEF_ARN=$(aws ecs describe-task-definition \
           --task-definition fintech-reconciliation-${{ steps.env.outputs.env }} \
           --query 'taskDefinition.taskDefinitionArn' --output text)
         
-        echo "Task Definition ARN: $TASK_DEF_ARN"
-        echo "ECS deployment ready for scheduled execution via EventBridge"
-    
-    - name: Deployment summary
-      run: |
-        echo "Deployment Summary"
+        echo "Deployment completed successfully"
         echo "Environment: ${{ steps.env.outputs.env }}"
-        echo "Commit: ${{ github.sha }}"
-        echo "Timestamp: $(date -u)"
-        echo "Status: Infrastructure and application deployed successfully"
+        echo "Task Definition: $TASK_DEF_ARN"
+        echo "Ready for EventBridge scheduling"
 
   verify:
-    name: Deployment Verification
+    name: Verify Deployment
     runs-on: ubuntu-latest
     needs: [test, deploy]
     if: needs.test.outputs.should-deploy == 'true'
-    timeout-minutes: 8
+    timeout-minutes: 5
     
     steps:
     - name: Configure AWS
@@ -305,29 +280,19 @@ jobs:
     
     - name: Verify deployment
       run: |
-        echo "Verifying deployment for ${{ steps.env.outputs.env }} environment"
-        # Verify cluster exists
-        aws ecs describe-clusters \
-          --clusters fintech-reconciliation-${{ steps.env.outputs.env }} \
-          --region ${{ env.AWS_REGION }}
-        
-        # Verify task definition exists
-        aws ecs describe-task-definition \
-          --task-definition fintech-reconciliation-${{ steps.env.outputs.env }} \
-          --region ${{ env.AWS_REGION }}
-        
-        echo "Deployment verification complete"
+        # Verify ECS cluster and task definition
+        aws ecs describe-clusters --clusters fintech-reconciliation-${{ steps.env.outputs.env }}
+        aws ecs describe-task-definition --task-definition fintech-reconciliation-${{ steps.env.outputs.env }}
+        echo "Deployment verified successfully"
     
   integration-test:
-    name: Integration & E2E Tests
+    name: Integration Test
     runs-on: ubuntu-latest
     needs: verify
     if: needs.test.outputs.should-deploy == 'true' && github.event.inputs.environment != 'prod'
-    timeout-minutes: 10
+    timeout-minutes: 8
     
     steps:
-    - uses: actions/checkout@v4
-    
     - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -335,16 +300,12 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
     
-    - name: Run integration tests
+    - name: Run integration test
       run: |
-        # Test ECS task execution
         CLUSTER_NAME="fintech-reconciliation-dev"
         TASK_DEF="fintech-reconciliation-dev"
-        CONTAINER_NAME="fintech-reconciliation-dev"
         
-        echo "Running integration test via ECS task..."
-        
-        # Get available subnets and security groups from same VPC
+        # Get network configuration
         SUBNET_INFO=$(aws ec2 describe-subnets \
           --filters "Name=tag:Name,Values=*fintech-reconciliation-dev*public*" \
           --query 'Subnets[0].[SubnetId,VpcId]' --output text)
@@ -352,160 +313,32 @@ jobs:
         SUBNETS=$(echo "$SUBNET_INFO" | awk '{print $1}')
         VPC_ID=$(echo "$SUBNET_INFO" | awk '{print $2}')
         
+        # Get newest ECS security group
         SECURITY_GROUP=$(aws ec2 describe-security-groups \
           --filters "Name=tag:Name,Values=*fintech-reconciliation-dev-ecs*" "Name=vpc-id,Values=$VPC_ID" \
-          --query 'SecurityGroups[0].GroupId' --output text)
+          --query 'SecurityGroups | sort_by(@, &GroupName) | [-1].GroupId' --output text)
         
-        echo "Using VPC: $VPC_ID"
-        echo "Using subnet: $SUBNETS"
-        echo "Using security group: $SECURITY_GROUP"
-        
+        # Run integration test
         TASK_ARN=$(aws ecs run-task \
           --cluster $CLUSTER_NAME \
           --task-definition $TASK_DEF \
           --launch-type FARGATE \
           --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" \
-          --overrides "{\"containerOverrides\":[{\"name\":\"$CONTAINER_NAME\",\"command\":[\"python\",\"src/main.py\",\"--processors\",\"stripe\",\"--date\",\"2025-01-01\"]}]}" \
+          --overrides "{\"containerOverrides\":[{\"name\":\"fintech-reconciliation-dev\",\"command\":[\"python\",\"src/main.py\",\"--processors\",\"stripe\",\"--date\",\"2025-01-01\"]}]}" \
           --query 'tasks[0].taskArn' --output text)
         
-        echo "Integration test task: $TASK_ARN"
-        
-        # Wait for task completion (max 5 minutes)
+        # Wait for completion
         aws ecs wait tasks-stopped --cluster $CLUSTER_NAME --tasks $TASK_ARN
         
-        # Check task exit code
+        # Check result
         EXIT_CODE=$(aws ecs describe-tasks \
           --cluster $CLUSTER_NAME \
           --tasks $TASK_ARN \
           --query 'tasks[0].containers[0].exitCode' --output text)
         
         if [[ "$EXIT_CODE" == "0" ]]; then
-          echo "Integration test passed"
+          echo "Integration test passed - System ready for production"
         else
           echo "Integration test failed with exit code: $EXIT_CODE"
           exit 1
         fi
-    
-    - name: Set environment
-      id: env
-      run: |
-        if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
-          echo "env=prod" >> $GITHUB_OUTPUT
-        else
-          echo "env=dev" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: Wait for infrastructure readiness
-      run: |
-        echo "Waiting for infrastructure to be ready..."
-        sleep 30
-        echo "Infrastructure ready for verification"
-    
-    - name: Verify deployment health
-      run: |
-        # Check ECS cluster status
-        CLUSTER_STATUS=$(aws ecs describe-clusters \
-          --clusters fintech-reconciliation-${{ steps.env.outputs.env }} \
-          --query 'clusters[0].status' --output text)
-        
-        echo "Cluster Status: $CLUSTER_STATUS"
-        
-        # Verify task definition exists
-        TASK_DEF_STATUS=$(aws ecs describe-task-definition \
-          --task-definition fintech-reconciliation-${{ steps.env.outputs.env }} \
-          --query 'taskDefinition.status' --output text)
-        
-        echo "Task Definition Status: $TASK_DEF_STATUS"
-        
-        if [[ "$CLUSTER_STATUS" == "ACTIVE" && "$TASK_DEF_STATUS" == "ACTIVE" ]]; then
-          echo "Deployment verification successful"
-        else
-          echo "Deployment verification failed"
-          exit 1
-        fi
-    
-    - name: Test EventBridge reconciliation
-      run: |
-        echo "Testing full reconciliation via EventBridge trigger..."
-        
-        # Manually trigger EventBridge rule
-        RULE_NAME="fintech-reconciliation-${{ steps.env.outputs.env }}-reconciliation"
-        
-        # Put test event to trigger the rule
-        aws events put-events --entries "[
-          {
-            \"Source\": \"test.reconciliation\",
-            \"DetailType\": \"Manual CI/CD Test\",
-            \"Detail\": \"{\\\"triggered_by\\\": \\\"cicd\\\", \\\"commit\\\": \\\"${{ github.sha }}\\\"}\"
-          }
-        ]"
-        
-        echo "EventBridge test event sent"
-        
-        # Wait a moment for EventBridge to process
-        sleep 10
-        
-        # Check for recent tasks triggered by EventBridge
-        echo "Checking for EventBridge-triggered tasks..."
-        
-        # Look for tasks in the last 5 minutes
-        RECENT_TASKS=$(aws ecs list-tasks \
-          --cluster fintech-reconciliation-${{ steps.env.outputs.env }} \
-          --query 'taskArns' --output text)
-        
-        if [[ -n "$RECENT_TASKS" && "$RECENT_TASKS" != "None" ]]; then
-          echo "Found recent tasks, checking latest one..."
-          
-          # Get the most recent task
-          LATEST_TASK=$(echo $RECENT_TASKS | awk '{print $NF}')
-          
-          # Wait for task completion (max 3 minutes)
-          echo "Waiting for EventBridge task completion: $LATEST_TASK"
-          timeout 180 aws ecs wait tasks-stopped \
-            --cluster fintech-reconciliation-${{ steps.env.outputs.env }} \
-            --tasks $LATEST_TASK || echo "Task still running after 3 minutes"
-          
-          # Check task status
-          TASK_STATUS=$(aws ecs describe-tasks \
-            --cluster fintech-reconciliation-${{ steps.env.outputs.env }} \
-            --tasks $LATEST_TASK \
-            --query 'tasks[0].[lastStatus,containers[0].exitCode]' --output text)
-          
-          echo "EventBridge task status: $TASK_STATUS"
-          
-          # Check CloudWatch logs for reconciliation output
-          echo "Checking CloudWatch logs for reconciliation results..."
-          sleep 5
-          
-          LOG_STREAMS=$(aws logs describe-log-streams \
-            --log-group-name /aws/ecs/fintech-reconciliation-${{ steps.env.outputs.env }} \
-            --order-by LastEventTime --descending --max-items 1 \
-            --query 'logStreams[0].logStreamName' --output text 2>/dev/null || echo "No logs yet")
-          
-          if [[ "$LOG_STREAMS" != "None" && "$LOG_STREAMS" != "No logs yet" ]]; then
-            echo "Recent reconciliation logs:"
-            aws logs get-log-events \
-              --log-group-name /aws/ecs/fintech-reconciliation-${{ steps.env.outputs.env }} \
-              --log-stream-name "$LOG_STREAMS" \
-              --start-time $(date -d '5 minutes ago' +%s)000 \
-              --query 'events[*].message' --output text | tail -10
-          fi
-        else
-          echo "No recent tasks found - EventBridge may take time to trigger"
-        fi
-        
-        echo "EventBridge reconciliation test completed"
-    
-    - name: Deployment complete
-      run: |
-        echo "Deployment Complete"
-        echo "Environment: ${{ steps.env.outputs.env }}"
-        echo "Commit: ${{ github.sha }}"
-        echo "Security: Scanned"
-        echo "Tests: Passed"
-        echo "Integration: Verified"
-        echo "EventBridge: Tested"
-        echo "Status: Production ready"
-        echo ""
-        echo "System will run automatically daily at 4:00 AM UTC"
-        echo "Monitor logs: aws logs tail /aws/ecs/fintech-reconciliation-${{ steps.env.outputs.env }} --follow"

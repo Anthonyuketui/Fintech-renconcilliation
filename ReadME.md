@@ -28,7 +28,7 @@ docker-compose exec db psql -U fintech -d fintech_reconciliation -c \
 - Docker containerization with PostgreSQL database
 - AWS cloud deployment with Terraform
 - Comprehensive test suite (130 tests, 81% coverage)
-- Security scanning and threat modeling
+- Security scanning and compliance
 - Multi-format reporting (CSV, JSON)
 - Email and Slack notifications
 
@@ -158,7 +158,7 @@ docker-compose run --rm app python src/main.py --date 2025-01-15 --processors st
 # 2. Configure backend.tf with your bucket name
 # 3. Add GitHub secrets
 
-# Deploy via CI/CD
+# Deploy via CI/CD (includes security scanning, testing, and deployment)
 git push origin main  # Triggers automated deployment
 ```
 
@@ -196,20 +196,10 @@ PYTHONPATH=src python -m pytest tests/test_data_fetcher.py -v
 ## Security & Compliance
 
 ### **Security Features**
-- ✅ **STRIDE Threat Model** - 23 identified threats with mitigations
 - ✅ **Automated Security Scanning** - Bandit + Safety in CI/CD
 - ✅ **Secrets Management** - AWS Secrets Manager integration
 - ✅ **Audit Trails** - Immutable PostgreSQL logs
-- ✅ **Path Traversal Protection** - Input validation
-- ✅ **SQL Injection Prevention** - Parameterized queries
-
-### **Compliance Standards**
-- **PCI DSS** - Payment card data security
-- **SOX** - Financial reporting controls
-- **GDPR** - Data privacy protection
-- **ISO 27001** - Information security management
-
-📋 **[View Complete Threat Model](THREAT-MODEL.md)**
+- ✅ **Input Validation** - Path traversal and SQL injection prevention
 
 ---
 
@@ -243,28 +233,12 @@ PYTHONPATH=src python -m pytest tests/test_data_fetcher.py -v
 
 ---
 
-## CI/CD Pipeline
 
-GitHub Actions workflow includes:
-- Security scanning (Bandit, Safety)
-- Test execution (130 tests)
-- Code quality checks
-- Terraform validation
-- AWS deployment
-
-See [GITHUB-SETUP.md](GITHUB-SETUP.md) for configuration details.
-
----
 
 ## Documentation
 
-| Document | Purpose | Audience |
-|----------|---------|----------|
-| **[README.md](README.md)** | System overview & quick start | All users |
-| **[SETUP.md](SETUP.md)** | AWS infrastructure setup guide | DevOps teams |
-| **[DEPLOYMENT.md](DEPLOYMENT.md)** | Detailed deployment guide | DevOps teams |
-| **[THREAT-MODEL.md](THREAT-MODEL.md)** | Security analysis & mitigations | Security teams |
-| **[GITHUB-SETUP.md](GITHUB-SETUP.md)** | CI/CD configuration guide | Developers |
+- **[SETUP.md](SETUP.md)** - AWS infrastructure setup guide
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Detailed deployment guide
 
 ---
 
@@ -309,47 +283,6 @@ docker-compose logs -f app
 # Database access
 docker-compose exec db psql -U fintech -d fintech_reconciliation
 ```
-
----
-
-## Monitoring & Observability
-
-### **Application Metrics**
-- **Transaction Processing Rate** - Txns/second throughput
-- **Discrepancy Detection Rate** - Missing transaction percentage
-- **API Response Times** - External service latency
-- **Database Performance** - Query execution times
-- **Error Rates** - Failed reconciliation attempts
-
-### **Infrastructure Monitoring**
-- **ECS Service Health** - Container status and resource usage
-- **RDS Performance** - Database connections and query performance
-- **S3 Operations** - Upload success rates and storage usage
-- **CloudWatch Logs** - Centralized application logging
-
-### Alerting Thresholds
-- **CRITICAL**: 50+ missing transactions or $50K+ discrepancy
-- **HIGH**: 20+ missing transactions or $10K+ discrepancy
-- **MEDIUM**: 5+ missing transactions or $1K+ discrepancy
-- **LOW**: <5 missing transactions and <$1K discrepancy
-
----
-
-## Contributing
-
-### **Development Workflow**
-1. **Fork** the repository
-2. **Create** feature branch (`git checkout -b feature/amazing-feature`)
-3. **Run tests** (`PYTHONPATH=src python -m pytest tests/`)
-4. **Commit** changes (`git commit -m 'Add amazing feature'`)
-5. **Push** to branch (`git push origin feature/amazing-feature`)
-6. **Open** Pull Request
-
-### **Code Standards**
-- **Test Coverage**: Maintain >70% overall, >90% for business logic
-- **Security**: All code scanned with Bandit
-- **Documentation**: Comprehensive docstrings for public methods
-- **Type Hints**: Full type annotations for better IDE support
 
 ---
 
