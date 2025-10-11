@@ -261,12 +261,21 @@ jobs:
     
     - name: Deploy to ECS
       run: |
-        # Update ECS service with new image
-        aws ecs update-service \
+        # Check if ECS service exists before updating
+        if aws ecs describe-services \
           --cluster fintech-reconciliation-${{ steps.env.outputs.env }} \
-          --service fintech-reconciliation-${{ steps.env.outputs.env }} \
-          --force-new-deployment \
-          --region ${{ env.AWS_REGION }}
+          --services fintech-reconciliation-${{ steps.env.outputs.env }} \
+          --region ${{ env.AWS_REGION }} \
+          --query 'services[0].status' --output text 2>/dev/null | grep -q "ACTIVE\|DRAINING\|PENDING"; then
+          echo "Updating existing ECS service..."
+          aws ecs update-service \
+            --cluster fintech-reconciliation-${{ steps.env.outputs.env }} \
+            --service fintech-reconciliation-${{ steps.env.outputs.env }} \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+        else
+          echo "ECS service is newly created, no update needed"
+        fi
         
         echo "Deployment initiated for ${{ steps.env.outputs.env }} environment"
     
