@@ -153,10 +153,12 @@ docker-compose run --rm app python src/main.py --date 2025-01-15 --processors st
 
 ### **2. AWS Cloud Deployment**
 ```bash
-# One command deployment
-./deploy.sh
+# Setup infrastructure (see SETUP.md)
+# 1. Create S3 bucket and DynamoDB table
+# 2. Configure backend.tf with your bucket name
+# 3. Add GitHub secrets
 
-# Or deploy via CI/CD
+# Deploy via CI/CD
 git push origin main  # Triggers automated deployment
 ```
 
@@ -259,6 +261,7 @@ See [GITHUB-SETUP.md](GITHUB-SETUP.md) for configuration details.
 | Document | Purpose | Audience |
 |----------|---------|----------|
 | **[README.md](README.md)** | System overview & quick start | All users |
+| **[SETUP.md](SETUP.md)** | AWS infrastructure setup guide | DevOps teams |
 | **[DEPLOYMENT.md](DEPLOYMENT.md)** | Detailed deployment guide | DevOps teams |
 | **[THREAT-MODEL.md](THREAT-MODEL.md)** | Security analysis & mitigations | Security teams |
 | **[GITHUB-SETUP.md](GITHUB-SETUP.md)** | CI/CD configuration guide | Developers |

@@ -184,43 +184,18 @@ jobs:
           echo "password=${{ secrets.DB_PASSWORD_DEV }}" >> $GITHUB_OUTPUT
         fi
     
-    - name: Bootstrap Terraform state (if needed)
+    - name: Verify Terraform backend configuration
       run: |
-        # Check if backend.tf exists and is configured
         ENV=${{ steps.env.outputs.env }}
         BACKEND_FILE="terraform/environments/$ENV/backend.tf"
         
-        # Use bucket name from GitHub secrets or create new one
-        if [[ -n "${{ secrets.TERRAFORM_STATE_BUCKET }}" ]]; then
-          BUCKET_NAME="${{ secrets.TERRAFORM_STATE_BUCKET }}"
-          DYNAMODB_TABLE="fintech-reconciliation-terraform-locks"
-          echo "Using existing bucket from secrets: $BUCKET_NAME"
-        else
-          echo "No bucket in secrets, running bootstrap..."
-          cd terraform/bootstrap
-          terraform init -input=false
-          terraform apply -auto-approve -input=false
-          
-          BUCKET_NAME=$(terraform output -raw s3_bucket_name)
-          DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
-          echo "Created new bucket: $BUCKET_NAME"
-          echo "Add this to GitHub secrets as TERRAFORM_STATE_BUCKET: $BUCKET_NAME"
-          cd ../..
+        if [[ ! -f "$BACKEND_FILE" ]]; then
+          echo "ERROR: backend.tf not found at $BACKEND_FILE"
+          echo "Please copy backend.tf.example to backend.tf and configure your bucket name"
+          exit 1
         fi
         
-        # Create backend.tf
-        mkdir -p "environments/$ENV"
-        cat > "environments/$ENV/backend.tf" << EOF
-        terraform {
-          backend "s3" {
-            bucket         = "$BUCKET_NAME"
-            key            = "$ENV/terraform.tfstate"
-            region         = "${{ env.AWS_REGION }}"
-            dynamodb_table = "$DYNAMODB_TABLE"
-            encrypt        = true
-          }
-        }
-        EOF
+        echo "Backend configuration found: $BACKEND_FILE"
     
     - name: Deploy infrastructure
       working-directory: terraform/environments/${{ steps.env.outputs.env }}
