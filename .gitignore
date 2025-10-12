@@ -43,3 +43,6 @@ reports/
 
 # Docker
 .dockerignore
+
+LINKEDIN-CONTENT-STRATEGY.md
+INTERVIEW-QUESTIONS-AND-ANSWERS.md

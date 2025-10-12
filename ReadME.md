@@ -237,8 +237,25 @@ PYTHONPATH=src python -m pytest tests/test_data_fetcher.py -v
 
 ## Documentation
 
-- **[SETUP.md](SETUP.md)** - AWS infrastructure setup guide
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Detailed deployment guide
+### Getting Started
+1. **[README.md](README.md)** - Project overview and quick start
+2. **[SETUP.md](SETUP.md)** - AWS infrastructure setup
+3. **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment guide
+
+### Technical Reference
+- **[TECHNICAL-DOCUMENTATION.md](TECHNICAL-DOCUMENTATION.md)** - Complete system documentation
+  - Architecture and design decisions
+  - Code analysis and implementation details
+  - Infrastructure components
+  - Security and testing strategies
+
+### Documentation Overview
+| File | Focus | Audience |
+|------|-------|----------|
+| README.md | Overview, features, quick start | All users |
+| SETUP.md | Initial AWS configuration | DevOps, developers |
+| DEPLOYMENT.md | Production deployment | DevOps, SRE |
+| TECHNICAL-DOCUMENTATION.md | Complete system analysis | Engineers, architects |
 
 ---
 
