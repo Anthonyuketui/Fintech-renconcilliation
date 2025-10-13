@@ -41,9 +41,16 @@ logs/
 # Reports (contains sensitive financial data)
 reports/
 
+# Debug and learning scripts
+debug_scripts/
+
+# Terraform variables (may contain sensitive data)
+terraform.tfvars
+
 # Docker
 .dockerignore
 
+# Personal materials
 LINKEDIN-CONTENT-STRATEGY.md
 INTERVIEW-QUESTIONS-AND-ANSWERS.md
 LEARNING-PATH.md
