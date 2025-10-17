@@ -47,7 +47,7 @@ jobs:
       run: |
         pip install -r requirements.txt
         pip install cyclonedx-bom
-        cyclonedx-py -o sbom.json
+        cyclonedx-py requirements -o sbom.json
     
     - name: Upload security artifacts
       uses: actions/upload-artifact@v4
