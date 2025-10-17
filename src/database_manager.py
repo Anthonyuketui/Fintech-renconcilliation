@@ -6,7 +6,7 @@ database_manager.py
 This module provides the **DatabaseManager** class, handling all data persistence
 for the reconciliation system. Key features include **full transaction safety**
 via context managers, support for **UUIDs**, efficient **bulk insertion** using
-`psycopg2.extras.execute_values`, and comprehensive **audit logging**.
+`psycopg2.extras.execute_values`, and complete **audit logging**.
 """
 
 import json
@@ -29,7 +29,7 @@ logger = get_logger()
 
 
 class DatabaseManager:
-    """Production-ready PostgreSQL manager with UUID support and comprehensive validation."""
+    """PostgreSQL manager with UUID support and data validation."""
 
     def __init__(self, settings: Settings = None):
         """Initializes database configuration from provided Settings or environment variables."""
@@ -459,6 +459,13 @@ class DatabaseManager:
         between the application and the database. The results are stored in the
         `data_quality_checks` table.
         """
+        # Validate run_id exists and belongs to current session
+        cursor.execute(
+            "SELECT id FROM reconciliation_runs WHERE id = %s",
+            (run_id,)
+        )
+        if not cursor.fetchone():
+            raise ValueError(f"Invalid run_id: {run_id}")
         checks = []
 
         # Recalculate metrics from the actual data in the database
@@ -573,7 +580,7 @@ class DatabaseManager:
         old_values: Dict[str, Any] = None,
         new_values: Dict[str, Any] = None,
     ):
-        """Logs a comprehensive audit event to the `audit_log` table."""
+        """Logs an audit event to the `audit_log` table."""
         cursor.execute(
             """
             INSERT INTO audit_log (
@@ -611,17 +618,20 @@ class DatabaseManager:
                     if not table_exists:
                         logger.info("Database tables not found, initializing schema...")
                         # Read and execute setup.sql
-                        # Try multiple possible locations
+                        # Try multiple possible locations with path validation
+                        base_dir = os.path.dirname(os.path.dirname(__file__))
                         possible_paths = [
                             '/app/setup.sql',  # Docker container
-                            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'setup.sql'),  # Local dev
+                            os.path.join(base_dir, 'setup.sql'),  # Local dev
                             'setup.sql'  # Current directory
                         ]
                         
                         setup_sql_path = None
                         for path in possible_paths:
-                            if os.path.exists(path):
-                                setup_sql_path = path
+                            # Validate path to prevent traversal
+                            normalized_path = os.path.normpath(path)
+                            if os.path.exists(normalized_path) and not '..' in normalized_path:
+                                setup_sql_path = normalized_path
                                 break
                         
                         if setup_sql_path:
@@ -642,7 +652,7 @@ class DatabaseManager:
             logger.error("Failed to initialize database schema", error=str(e))
 
     def health_check(self) -> bool:
-        """Performs a comprehensive database connectivity and write check."""
+        """Performs a database connectivity and write check."""
         try:
             with self.get_connection() as conn:
                 if conn is None:

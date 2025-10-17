@@ -4,7 +4,7 @@ aws_manager.py
 ## AWS S3 Storage Manager with Local Fallback
 
 This module provides the AWSManager class for handling report persistence.
-It prioritizes secure, permanent storage in AWS S3 but implements a robust
+It prioritizes secure, permanent storage in AWS S3 but implements a reliable
 local file system fallback if S3 credentials, configuration,
 or access fails, ensuring the reconciliation process never stalls due to storage issues.
 """
@@ -157,19 +157,18 @@ class AWSManager:
 
     def _use_local_storage(self, file_path: Path) -> str:
         """Returns local file path with the mandatory file:// URI scheme."""
-        resolved_path = file_path.resolve()
-        allowed_paths = [
-            str(Path.cwd()), 
-            str(Path.home() / "AppData" / "Local" / "Temp"),
-            "/tmp",  # Allow test directories
-            "/var/tmp"
-        ]
-        resolved_str = str(resolved_path)
-        
-        # Allow if path starts with any allowed path or is in test environment
-        is_test_env = "pytest" in resolved_str or "test_" in str(file_path)
-        if not (any(resolved_str.startswith(path) for path in allowed_paths) or is_test_env):
-            raise ValueError(f"Path traversal detected: {file_path}")
+        # Normalize and validate path to prevent traversal
+        normalized_path = os.path.normpath(str(file_path))
+        if ".." in normalized_path or normalized_path.startswith("/"):
+            # Only allow relative paths in safe directories
+            safe_name = os.path.basename(normalized_path)
+            reports_dir = Path("./reports")
+            reports_dir.mkdir(exist_ok=True)
+            safe_path = reports_dir / safe_name
+        else:
+            safe_path = Path(normalized_path)
+            
+        resolved_path = safe_path.resolve()
         return f"file://{resolved_path.as_posix()}"
 
     def is_s3_path(self, path: str) -> bool:

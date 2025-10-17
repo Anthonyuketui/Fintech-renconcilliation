@@ -58,7 +58,7 @@ gh workflow run "FinTech Reconciliation - CI/CD" --field environment=prod
 ```
 
 **Pipeline Stages (35 minutes total):**
-1. **Security Scan** (8 min) - Bandit + Safety security analysis
+1. **Security Scan** (8 min) - Semgrep + Trivy security analysis
 2. **Test & Quality Gates** (12 min) - 130 tests with PostgreSQL service
 3. **Build & Package** (8 min) - Docker image creation and ECR push
 4. **Deploy Infrastructure** (15 min) - Terraform apply with 10 modules
@@ -246,6 +246,51 @@ aws ses get-identity-verification-attributes \
 
 ---
 
+## Monitoring Strategy
+
+### Development Environment
+**Local Prometheus/Grafana Stack:**
+```bash
+# Start monitoring with reconciliation system
+docker-compose up -d
+
+# Access monitoring interfaces
+# Prometheus: http://localhost:9090
+# Grafana: http://localhost:3000 (admin/admin123)
+
+# Query database metrics
+pg_stat_database_tup_inserted{datname="fintech_reconciliation"}
+pg_stat_user_tables_n_tup_ins{relname="missing_transactions"}
+```
+
+### Production Environment
+**AWS Native Monitoring (Secure & Compliant):**
+- **CloudWatch**: RDS metrics, ECS container health, application logs
+- **RDS Performance Insights**: Database query analysis and optimization
+- **Database-driven Business Metrics**: Reconciliation results stored in PostgreSQL
+- **Email Notifications**: Immediate alerts for CRITICAL/HIGH severity issues
+
+**Key Production Metrics:**
+```bash
+# Database performance
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/RDS \
+  --metric-name CPUUtilization \
+  --dimensions Name=DBInstanceIdentifier,Value=fintech-reconciliation-dev
+
+# ECS task health
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/ECS \
+  --metric-name CPUUtilization \
+  --dimensions Name=ServiceName,Value=fintech-reconciliation-dev
+
+# Business metrics from database
+psql -h <rds-endpoint> -U fintech -d fintech_reconciliation \
+  -c "SELECT COUNT(*) as total_runs, AVG(missing_transaction_count) as avg_missing FROM reconciliation_runs WHERE created_at > NOW() - INTERVAL '30 days';"
+```
+
+---
+
 ## Monitoring & Operations
 
 ### Health Checks
@@ -256,11 +301,23 @@ aws ecs describe-clusters --clusters fintech-reconciliation-dev
 # Task definition status
 aws ecs describe-task-definition --task-definition fintech-reconciliation-dev
 
-# Database connectivity
+# Database connectivity and performance
 aws rds describe-db-instances --db-instance-identifier fintech-reconciliation-dev
+
+# RDS Performance Insights (production monitoring)
+aws pi get-resource-metrics \
+  --service-type RDS \
+  --identifier <db-resource-id> \
+  --metric-queries file://metrics-query.json
 
 # S3 bucket access
 aws s3 ls s3://fintech-reconciliation-dev-reports/
+
+# CloudWatch metrics
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/RDS \
+  --metric-name DatabaseConnections \
+  --dimensions Name=DBInstanceIdentifier,Value=fintech-reconciliation-dev
 ```
 
 ### Manual Task Execution

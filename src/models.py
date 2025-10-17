@@ -4,7 +4,7 @@ models.py
 ## FinTech Transaction Reconciliation System Data Models
 
 This module defines all core data models for the FinTech Transaction Reconciliation System.
-Models are built using Pydantic for robust validation, type safety, and seamless serialization.
+Models are built using Pydantic for data validation, type safety, and serialization.
 These models form the backbone for all business logic, API contracts, and financial reporting.
 """
 
@@ -87,6 +87,11 @@ class Settings(BaseSettings):
         """
         if self.DB_URL:
             return self.DB_URL
+        
+        # Validate required fields
+        if not self.DB_USER or not self.DB_HOST or not self.DB_NAME:
+            raise ValueError("Database configuration incomplete: DB_USER, DB_HOST, and DB_NAME are required")
+            
         return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     @property

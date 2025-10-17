@@ -1479,20 +1479,20 @@ The following sections will cover:
 - **Disaster Recovery** - Backup and recovery procedures
 ## 13. Testing Framework
 
-The system includes a comprehensive test suite with 130 tests achieving 81% overall coverage.
+The system includes a comprehensive test suite with 130 tests achieving 77% overall coverage.
 
 ### Test Coverage by Module
 
-| Module | Coverage | Tests | Key Test Areas |
-|--------|----------|-------|----------------|
-| **models.py** | 100% | 14 | Pydantic validation, Settings loading |
-| **reconciliation_engine.py** | 100% | 12 | Hash indexing, financial calculations |
-| **data_fetcher.py** | 99% | 26 | API retry logic, pagination, timeouts |
-| **report_generator.py** | 99% | 26 | Multi-format output, path security |
-| **notification_service.py** | 74% | 17 | Email delivery, severity assessment |
-| **database_manager.py** | 76% | 18 | Transaction safety, audit logging |
-| **aws_manager.py** | 69% | 13 | S3 fallback, error handling |
-| **main.py** | 64% | 9 | Orchestration, error isolation |
+| Module | Coverage | Key Test Areas |
+|--------|----------|----------------|
+| **reconciliation_engine.py** | 100% | Hash indexing, financial calculations |
+| **models.py** | 99% | Pydantic validation, Settings loading |
+| **data_fetcher.py** | 99% | API retry logic, pagination, timeouts |
+| **report_generator.py** | 96% | Multi-format output, path security |
+| **database_manager.py** | 76% | Transaction safety, audit logging |
+| **notification_service.py** | 75% | Email delivery, severity assessment |
+| **aws_manager.py** | 68% | S3 fallback, error handling |
+| **main.py** | 66% | Orchestration, error isolation |
 
 ### Test Execution
 ```bash
@@ -1691,7 +1691,7 @@ docker-compose exec db psql -U fintech -d fintech_reconciliation \
 This FinTech Transaction Reconciliation System represents a production-ready, enterprise-grade solution with:
 
 ### Key Achievements
-- **81% test coverage** across 130 comprehensive tests
+- **77% test coverage** across 130 comprehensive tests
 - **Zero-downtime deployment** with ECS Fargate and blue-green strategies
 - **Multi-channel alerting** with adaptive severity thresholds
 - **Comprehensive audit trails** for regulatory compliance
