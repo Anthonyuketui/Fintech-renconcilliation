@@ -100,7 +100,6 @@ resource "aws_security_group" "ecs" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
     description = "HTTP outbound for package updates"
-    description = "All outbound traffic"
   }
 
   tags = merge(local.common_tags, {
