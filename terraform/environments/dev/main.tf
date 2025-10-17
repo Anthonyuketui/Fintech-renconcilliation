@@ -225,3 +225,4 @@ module "eventbridge" {
   
   depends_on = [module.ecs, module.iam]
 }
+

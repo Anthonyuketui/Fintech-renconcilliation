@@ -42,18 +42,15 @@ class ReportGenerator:
         Returns: (CSV Path, Executive Summary Text, JSON Path)
         """
         # Validate and normalize output directory path
-        normalized_path = output_dir.resolve()
-        cwd = Path.cwd()
-        allowed_dirs = [cwd, cwd / "reports", cwd / "local_reports"]
-        
-        is_allowed = any(
-            normalized_path.is_relative_to(allowed_dir) 
-            for allowed_dir in allowed_dirs if allowed_dir.exists()
-        )
-        is_temp = "tmp" in str(normalized_path).lower()
-        
-        if not (is_allowed or is_temp):
-            raise ValueError("Invalid output directory path detected")
+        import os
+        normalized_str = os.path.normpath(str(output_dir))
+        if ".." in normalized_str:
+            # Force safe directory for any path traversal attempts
+            safe_dir = Path("./reports")
+            safe_dir.mkdir(exist_ok=True)
+            normalized_path = safe_dir
+        else:
+            normalized_path = Path(normalized_str).resolve()
         normalized_path.mkdir(parents=True, exist_ok=True)
 
         # 1. Generate Detailed CSV

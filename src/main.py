@@ -13,6 +13,7 @@ from datetime import date
 from typing import List
 import logging
 import structlog
+import time
 from dotenv import load_dotenv
 
 
@@ -23,6 +24,7 @@ from models import Settings
 from notification_service import NotificationService
 from reconciliation_engine import ReconciliationEngine
 from report_generator import ReportGenerator
+from metrics import metrics, get_system_metrics
 
 
 load_dotenv()
@@ -34,9 +36,9 @@ logger = structlog.get_logger()
 try:
     SETTINGS = Settings()
 except Exception as e:
-    logger.error(
-        "Failed to load environment settings. Check your .env file.", error=str(e)
-    )
+    # Use basic logging since structlog may not be configured yet
+    print(f"ERROR: Failed to load environment settings: {e}")
+    print("Please check your .env file configuration.")
     sys.exit(1)
 
 
@@ -65,8 +67,15 @@ class ReconciliationSystem:
         - NotificationService for email/Slack alerts
         - ReportGenerator for CSV/JSON report creation
         - ReconciliationEngine for transaction matching
+        - Metrics server for Prometheus monitoring
         """
         SETTINGS.REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Start metrics server with error handling
+        try:
+            metrics.start_metrics_server()
+        except Exception as e:
+            logger.warning("Failed to start metrics server", error=str(e))
         self.aws_manager = AWSManager(
             bucket_name=SETTINGS.AWS_BUCKET_NAME, region=SETTINGS.AWS_REGION
         )
@@ -94,13 +103,23 @@ class ReconciliationSystem:
         s3_uploaded = False
 
         try:
-            # Create audit record
-            run_id = self.database_manager.create_reconciliation_run(
-                target_date, processor_name
-            )
-            if run_id is None:
-                logger.error(
-                    "Could not start database audit record. Aborting processor run."
+            # Create audit record with error handling
+            try:
+                run_id = self.database_manager.create_reconciliation_run(
+                    target_date, processor_name
+                )
+                if run_id is None:
+                    logger.error(
+                        "Could not start database audit record. Aborting processor run."
+                    )
+                    self.notification_service.send_failure_alert(
+                        processor_name, target_date_str, "unknown", "Could not start database audit record"
+                    )
+                    return False
+            except Exception as e:
+                logger.error("Database connection failed", error=str(e))
+                self.notification_service.send_failure_alert(
+                    processor_name, target_date_str, "unknown", str(e)
                 )
                 return False
             logger.debug("Database run record created", run_id=run_id)
@@ -122,9 +141,23 @@ class ReconciliationSystem:
                 internal_count=len(internal_txns),
             )
 
+            # Record transaction metrics
+            metrics.record_transactions_processed(processor_name, 'processor', len(proc_txns))
+            metrics.record_transactions_processed(processor_name, 'internal', len(internal_txns))
+            
             # Perform reconciliation
+            start_time = time.time()
             result = self.reconciliation_engine.reconcile(
                 proc_txns, internal_txns, target_date, processor_name
+            )
+            duration = time.time() - start_time
+            
+            # Record business metrics
+            metrics.record_reconciliation_run(processor_name, 'success', duration)
+            metrics.record_missing_transactions(
+                processor_name,
+                len(result.missing_transactions_details),
+                float(result.summary.total_discrepancy_amount)
             )
 
             # Store results

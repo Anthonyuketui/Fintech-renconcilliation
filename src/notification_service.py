@@ -455,36 +455,14 @@ class NotificationService:
     def _is_safe_path(self, file_path: str) -> bool:
         """Validate file path to prevent directory traversal."""
         try:
-            # Check if path is within allowed directories
-            resolved_path = Path(file_path).resolve()
-            
-            # Define allowed directories
-            allowed_dirs = [
-                Path("Sample_Output").resolve(), 
-                Path("reports").resolve(),
-                Path("local_reports").resolve(),
-                Path("/app/local_reports").resolve(),
-                Path("/app/reports").resolve(),
-                Path("/tmp").resolve()
-            ]
-            
-            # Check if resolved path is within any allowed directory
-            for allowed_dir in allowed_dirs:
-                try:
-                    # Use is_relative_to for proper path containment checking
-                    if resolved_path.is_relative_to(allowed_dir):
-                        return True
-                except ValueError:
-                    # is_relative_to can raise ValueError on Windows with different drives
-                    continue
-                    
-            # Additional check for ECS container paths
-            path_str = str(resolved_path)
-            allowed_patterns = ["/app/local_reports", "/app/reports", "local_reports", "reports"]
-            if any(pattern in path_str for pattern in allowed_patterns):
-                return True
+            import os
+            # Normalize path and check for traversal attempts
+            normalized = os.path.normpath(file_path)
+            if ".." in normalized or normalized.startswith("/"):
+                return False
                 
-            return False
-        except Exception as e:
-            logger.debug("Path validation error", file_path=file_path, error=str(e))
+            # Only allow files in safe directories
+            safe_patterns = ["reports", "local_reports", "Sample_Output", "tmp"]
+            return any(pattern in normalized for pattern in safe_patterns)
+        except Exception:
             return False

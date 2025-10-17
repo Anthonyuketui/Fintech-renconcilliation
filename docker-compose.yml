@@ -1,64 +1,100 @@
-services:
-  db:
-    image: postgres:15-alpine
-    container_name: fintech-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-    ports:
-      - "5432:5432"  # only needed for development database access
-    volumes:
-      - db_data:/var/lib/postgresql/data
-      - ./setup.sql:/docker-entrypoint-initdb.d/setup.sql:ro
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - fintech-network
 
-  app:
-    build: .
-    container_name: fintech-app
-    restart: unless-stopped
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: fintech-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - fintech-monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fintech-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboard.json:/var/lib/grafana/dashboards/fintech-dashboard.json
+    networks:
+      - fintech-monitoring
+    depends_on:
+      - prometheus
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: fintech-postgres-exporter
+    ports:
+      - "9187:9187"
     env_file:
       - .env
     environment:
-      DB_HOST: db
-      # Container path for reports (internal to container)
-      REPORT_OUTPUT_DIR: /app/reports
-      # Docker-friendly SMTP settings
-      SMTP_PORT: 465
+      - DATA_SOURCE_NAME=postgresql://${DB_USER}:${DB_PASSWORD}@db:${DB_PORT}/${DB_NAME}?sslmode=disable
+    networks:
+      - fintech-monitoring
+      - fintech-network
     depends_on:
-      db:
-        condition: service_healthy
+      - db
+
+  # Your existing app service with metrics enabled
+  app:
+    build: .
+    container_name: fintech-reconciliation-app
+    ports:
+      - "8000:8000"  # Metrics endpoint
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
     volumes:
-      # Map host folder (from .env) to container folder inside app
-      - ./reports:/app/reports
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.5'
-        reservations:
-          memory: 128M
-          cpus: '0.25'
+      - ./local_reports:/app/local_reports
     networks:
       - fintech-network
+      - fintech-monitoring
+    depends_on:
+      - db
+      - prometheus
+
+
+  # Your existing database
+  db:
+    image: postgres:15
+    container_name: fintech-postgres
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./setup.sql:/docker-entrypoint-initdb.d/setup.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - fintech-network
+      - fintech-monitoring
 
 volumes:
-  db_data:
+  prometheus_data:
+  grafana_data:
+  postgres_data:
 
 networks:
   fintech-network:
+    driver: bridge
+  fintech-monitoring:
+    driver: bridge
