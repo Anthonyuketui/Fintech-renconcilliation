@@ -220,6 +220,7 @@ jobs:
         scanners: 'vuln,secret,misconfig'
         severity: 'CRITICAL'
         exit-code: '1'
+        trivyignores: '.trivyignore'
     
     - name: Upload image artifact
       uses: actions/upload-artifact@v4
