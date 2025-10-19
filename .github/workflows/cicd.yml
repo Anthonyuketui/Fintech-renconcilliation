@@ -140,7 +140,7 @@ jobs:
         from datetime import datetime
         from decimal import Decimal
         processor_txns = [Transaction(
-            transaction_id=f'proc_{i}',
+            transaction_id=f'txn_{i}',
             processor_name='stripe',
             amount=Decimal('100.0'),
             currency='USD',
@@ -151,7 +151,7 @@ jobs:
             fee=Decimal('2.9')
         ) for i in range(10000)]
         internal_txns = [Transaction(
-            transaction_id=f'int_{i}',
+            transaction_id=f'txn_{i}',
             processor_name='stripe',
             amount=Decimal('100.0'),
             currency='USD',
@@ -160,7 +160,7 @@ jobs:
             transaction_date=datetime(2025, 1, 1),
             reference_number=f'ref_{i}',
             fee=Decimal('2.9')
-        ) for i in range(9500)]  # 500 missing
+        ) for i in range(9500)]  # 500 missing (txn_9500 to txn_9999)
         
         # Performance test
         from datetime import date
