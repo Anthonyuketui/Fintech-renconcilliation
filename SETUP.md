@@ -33,6 +33,7 @@ Add these secrets to your GitHub repository:
 - `DB_PASSWORD_DEV` - Database password for dev
 - `DB_PASSWORD_PROD` - Database password for prod
 - `OPERATIONS_EMAIL` - Your email for notifications
+- `TERRAFORM_STATE_BUCKET` - S3 bucket for Terraform state
 
 ## 4. Deploy
 

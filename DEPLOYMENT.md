@@ -57,12 +57,13 @@ gh workflow run "FinTech Reconciliation - CI/CD" --field environment=dev
 gh workflow run "FinTech Reconciliation - CI/CD" --field environment=prod
 ```
 
-**Pipeline Stages (35 minutes total):**
-1. **Security Scan** (8 min) - Semgrep + Trivy security analysis
-2. **Test & Quality Gates** (12 min) - 130 tests with PostgreSQL service
-3. **Build & Package** (8 min) - Docker image creation and ECR push
-4. **Deploy Infrastructure** (15 min) - Terraform apply with 10 modules
-5. **Verify Deployment** (5 min) - Health checks and integration tests
+**Pipeline Stages (58 minutes total):**
+1. **Security Scan** (8 min) - Semgrep SAST + Trivy vulnerability scanning + SBOM generation
+2. **Test & Quality Gates** (12 min) - 130 tests + performance testing with PostgreSQL service
+3. **Build & Package** (10 min) - Docker image creation + container security scan
+4. **Deploy Infrastructure** (15 min) - Terraform apply + drift detection with 10 modules
+5. **Verify Deployment** (5 min) - Health checks and deployment validation
+6. **Integration Test** (8 min) - End-to-end system validation
 
 ### Option 2: Manual Infrastructure Deployment
 

@@ -85,21 +85,21 @@ resource "aws_security_group" "ecs" {
   name_prefix = "${local.project_name}-dev-ecs-"
   vpc_id      = module.vpc.vpc_id
 
-  # Allow all outbound traffic for AWS services
+  # Restrict outbound traffic to specific ports only
   egress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTPS outbound for AWS services"
+    description = "HTTPS for AWS APIs"
   }
   
   egress {
-    from_port   = 80
-    to_port     = 80
+    from_port   = 5432
+    to_port     = 5432
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTP outbound for package updates"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "PostgreSQL database access"
   }
 
   tags = merge(local.common_tags, {
@@ -159,7 +159,7 @@ module "ecs" {
   log_group_name          = module.cloudwatch.log_group_name
   aws_region              = var.aws_region
   enable_container_insights = false
-  enable_image_scanning    = false
+  enable_image_scanning    = true
   
   environment_variables = [
     {

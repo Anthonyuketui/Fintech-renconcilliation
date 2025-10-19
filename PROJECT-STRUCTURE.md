@@ -137,7 +137,7 @@ fintech-app/
 | **Infrastructure Files** | 20+ | 100% IaC |
 | **Documentation Files** | 6 | Complete coverage |
 | **Configuration Files** | 6 | All environments |
-| **Total Files** | 38+ | Production-ready |
+| **Total Files** | 35 | Production-ready |
 
 ## Where to Start
 

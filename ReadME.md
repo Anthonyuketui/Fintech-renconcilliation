@@ -110,6 +110,7 @@ PostgreSQL ← Database Manager ← Audit Logger ← Notification Service ← Op
 | **notification_service.py** | 75% | Alert system |
 | **aws_manager.py** | 68% | Cloud storage |
 | **main.py** | 66% | Orchestration |
+| **metrics.py** | 44% | System metrics |
 | **TOTAL** | **77%** | **Production-ready** |
 
 ## Documentation

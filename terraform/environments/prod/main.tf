@@ -106,15 +106,15 @@ resource "aws_security_group" "ecs" {
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTPS outbound for AWS services"
+    description = "HTTPS for AWS APIs"
   }
   
   egress {
-    from_port   = 80
-    to_port     = 80
+    from_port   = 5432
+    to_port     = 5432
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTP outbound for package updates"
+    cidr_blocks = ["10.0.0.0/16"]
+    description = "PostgreSQL database access"
   }
 
   tags = merge(local.common_tags, {

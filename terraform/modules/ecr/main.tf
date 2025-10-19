@@ -1,6 +1,6 @@
 resource "aws_ecr_repository" "main" {
   name                 = "${var.project_name}-${var.environment}"
-  image_tag_mutability = "IMMUTABLE"
+  image_tag_mutability = var.environment == "prod" ? "IMMUTABLE" : "MUTABLE"
 
   image_scanning_configuration {
     scan_on_push = var.enable_image_scanning
@@ -22,12 +22,11 @@ resource "aws_ecr_lifecycle_policy" "main" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep last 10 images"
+        description  = "Keep last images based on environment"
         selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["v"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 10
+          tagStatus   = "tagged"
+          countType   = "imageCountMoreThan"
+          countNumber = var.environment == "prod" ? 5 : 1
         }
         action = {
           type = "expire"
@@ -50,7 +49,7 @@ resource "aws_ecr_lifecycle_policy" "main" {
   })
 }
 
-# Security: Block public access
+# Security: Explicit deny public access
 resource "aws_ecr_repository_policy" "main" {
   repository = aws_ecr_repository.main.name
 
@@ -58,19 +57,15 @@ resource "aws_ecr_repository_policy" "main" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "DenyPublicAccess"
+        Sid    = "DenyAllPublicAccess"
         Effect = "Deny"
         Principal = "*"
-        Action = [
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:BatchGetImage",
-          "ecr:BatchCheckLayerAvailability"
-        ]
+        Action = "*"
         Condition = {
           StringNotEquals = {
-            "aws:PrincipalServiceName" = [
-              "ecs-tasks.amazonaws.com",
-              "codebuild.amazonaws.com"
+            "aws:PrincipalArn" = [
+              "arn:aws:iam::*:role/*-ecs-task-*",
+              "arn:aws:iam::*:role/*-ecs-execution-*"
             ]
           }
         }

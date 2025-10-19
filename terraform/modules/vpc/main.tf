@@ -24,7 +24,7 @@ resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.${count.index + 10}.0/24"
   availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
+  map_public_ip_on_launch = var.environment == "prod" ? false : true
 
   tags = merge(var.tags, {
     Name = "${var.project_name}-${var.environment}-public-${count.index + 1}"
@@ -179,7 +179,7 @@ resource "aws_security_group" "vpc_endpoints" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["10.0.0.0/16"]
   }
 
   tags = merge(var.tags, {
