@@ -163,18 +163,19 @@ jobs:
         ) for i in range(9500)]  # 500 missing
         
         # Performance test
+        from datetime import date
         start_time = time.time()
         engine = ReconciliationEngine()
-        missing = engine.find_missing_transactions(processor_txns, internal_txns)
+        result = engine.reconcile(processor_txns, internal_txns, date(2025, 1, 1), 'stripe')
         duration = time.time() - start_time
         
         print(f'Processed 10,000 transactions in {duration:.2f} seconds')
-        print(f'Found {len(missing)} missing transactions')
+        print(f'Found {result.summary.missing_transactions_count} missing transactions')
         
         if duration > 30:  # Should process 10k transactions in under 30 seconds
             raise Exception(f'Performance test failed: {duration:.2f}s > 30s')
-        if len(missing) != 500:
-            raise Exception(f'Logic test failed: expected 500 missing, got {len(missing)}')
+        if result.summary.missing_transactions_count != 500:
+            raise Exception(f'Logic test failed: expected 500 missing, got {result.summary.missing_transactions_count}')
         
         print('Performance test passed')
         "
