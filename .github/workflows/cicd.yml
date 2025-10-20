@@ -388,8 +388,19 @@ jobs:
         
         # Get VPC configuration for task
         VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=${{ env.APP_NAME }}-$ENV-vpc" --query 'Vpcs[0].VpcId' --output text)
+        echo "VPC ID: $VPC_ID"
+        
         SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=*public*" --query 'Subnets[0].SubnetId' --output text)
-        SG_ID=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" "Name=group-name,Values=${{ env.APP_NAME }}-$ENV-ecs-sg" --query 'SecurityGroups[0].GroupId' --output text)
+        echo "Subnet ID: $SUBNET_ID"
+        
+        SG_ID=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=${{ env.APP_NAME }}-$ENV-ecs-sg" --query 'SecurityGroups[0].GroupId' --output text)
+        echo "Security Group ID: $SG_ID"
+        
+        if [[ "$SG_ID" == "None" || -z "$SG_ID" ]]; then
+          echo "Failed to find security group, trying alternative name pattern..."
+          SG_ID=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[?contains(GroupName, `ecs`)].GroupId | [0]' --output text)
+          echo "Alternative Security Group ID: $SG_ID"
+        fi
         
         echo "Running integration test task..."
         TASK_ARN=$(aws ecs run-task \
