@@ -101,6 +101,14 @@ resource "aws_security_group" "ecs" {
     cidr_blocks = ["10.0.0.0/16"]
     description = "PostgreSQL database access"
   }
+  
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    self        = true
+    description = "PostgreSQL access from ECS tasks"
+  }
 
   tags = merge(local.common_tags, {
     Name = "${local.project_name}-dev-ecs-sg"
