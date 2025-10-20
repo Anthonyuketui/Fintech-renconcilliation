@@ -121,7 +121,7 @@ class ReconciliationSystem:
                 self.notification_service.send_failure_alert(
                     processor_name, target_date_str, "unknown", str(e)
                 )
-                return False
+                sys.exit(1)  # Exit with error code for CI/CD detection
             logger.debug("Database run record created", run_id=run_id)
 
             # Fetch transaction data
