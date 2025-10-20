@@ -119,7 +119,7 @@ module "rds" {
   source = "../../modules/rds"
 
   vpc_id                = module.vpc.vpc_id
-  private_subnet_ids    = module.vpc.private_subnet_ids
+  private_subnet_ids    = module.vpc.public_subnet_ids  # Use public subnets in dev
   ecs_security_group_id = aws_security_group.ecs.id
   
   instance_class        = "db.t3.micro"

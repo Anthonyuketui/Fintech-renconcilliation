@@ -46,7 +46,7 @@ resource "aws_db_instance" "postgres" {
   maintenance_window     = "sun:04:00-sun:05:00"
   
   multi_az               = var.multi_az
-  publicly_accessible    = false
+  publicly_accessible    = var.environment == "dev"  # Allow public access in dev
   deletion_protection    = var.environment == "prod"
   
   skip_final_snapshot = var.environment != "prod"
