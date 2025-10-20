@@ -171,8 +171,9 @@ def test_database_exception(mock_system_dependencies):
         "DB failed"
     )
 
-    result = system._process_single_processor("TEST", "2025-01-01")
-    assert result is False
+    with pytest.raises(SystemExit) as exc_info:
+        system._process_single_processor("TEST", "2025-01-01")
+    assert exc_info.value.code == 1
     system.notification_service.send_failure_alert.assert_called_once()
 
 
