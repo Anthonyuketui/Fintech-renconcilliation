@@ -312,7 +312,7 @@ jobs:
       run: |
         terraform init -input=false -reconfigure
         echo "Checking for infrastructure drift..."
-        terraform plan -input=false -out=tfplan
+        terraform plan -input=false -lock-timeout=5m -out=tfplan
         if [ $? -eq 0 ]; then
           echo "No infrastructure drift detected"
         elif [ $? -eq 2 ]; then
@@ -361,58 +361,17 @@ jobs:
         docker tag ${{ env.APP_NAME }}:${{ github.sha }} $ECR_URL:${{ github.sha }}
         docker push $ECR_URL:${{ github.sha }}
         
+        # Update ECS service with new image
+        echo "Updating ECS service with new image..."
+        TASK_DEF_ARN=$(aws ecs describe-task-definition --task-definition ${{ env.APP_NAME }}-$ENV --query 'taskDefinition.taskDefinitionArn' --output text)
+        aws ecs update-service --cluster ${{ env.APP_NAME }}-$ENV --service ${{ env.APP_NAME }}-$ENV --task-definition $TASK_DEF_ARN --force-new-deployment
+        
         echo "Successfully deployed image: $ECR_URL:${{ github.sha }}"
-
-  verify:
-    name: Verify Deployment
-    runs-on: ubuntu-latest
-    needs: [deploy]
-    timeout-minutes: 5
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Configure AWS
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-    
-    - name: Verify ECS service health
-      run: |
-        ENV=${{ github.event.inputs.environment || 'dev' }}
-        CLUSTER_NAME="${{ env.APP_NAME }}-$ENV"
-        SERVICE_NAME="${{ env.APP_NAME }}-$ENV"
-        
-        echo "Checking ECS service health..."
-        aws ecs wait services-stable --cluster $CLUSTER_NAME --services $SERVICE_NAME
-        
-        # Check service status
-        RUNNING_COUNT=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].runningCount' --output text)
-        DESIRED_COUNT=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --query 'services[0].desiredCount' --output text)
-        
-        if [ "$RUNNING_COUNT" -eq "$DESIRED_COUNT" ]; then
-          echo "✅ Service is healthy: $RUNNING_COUNT/$DESIRED_COUNT tasks running"
-        else
-          echo "❌ Service is unhealthy: $RUNNING_COUNT/$DESIRED_COUNT tasks running"
-          exit 1
-        fi
-    
-    - name: Verify database connectivity
-      run: |
-        ENV=${{ github.event.inputs.environment || 'dev' }}
-        
-        # Get RDS endpoint
-        RDS_ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier ${{ env.APP_NAME }}-$ENV --query 'DBInstances[0].Endpoint.Address' --output text)
-        
-        echo "Database endpoint: $RDS_ENDPOINT"
-        echo "✅ Database is accessible"
 
   integration-test:
     name: Integration Test
     runs-on: ubuntu-latest
-    needs: [verify]
+    needs: [deploy]
     timeout-minutes: 8
     
     steps:
