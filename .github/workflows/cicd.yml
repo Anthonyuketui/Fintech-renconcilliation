@@ -361,12 +361,8 @@ jobs:
         docker tag ${{ env.APP_NAME }}:${{ github.sha }} $ECR_URL:${{ github.sha }}
         docker push $ECR_URL:${{ github.sha }}
         
-        # Update ECS service with new image
-        echo "Updating ECS service with new image..."
-        TASK_DEF_ARN=$(aws ecs describe-task-definition --task-definition ${{ env.APP_NAME }}-$ENV --query 'taskDefinition.taskDefinitionArn' --output text)
-        aws ecs update-service --cluster ${{ env.APP_NAME }}-$ENV --service ${{ env.APP_NAME }}-$ENV --task-definition $TASK_DEF_ARN --force-new-deployment
-        
         echo "Successfully deployed image: $ECR_URL:${{ github.sha }}"
+        echo "Task definition updated - EventBridge will use new image on next scheduled run"
 
   integration-test:
     name: Integration Test
