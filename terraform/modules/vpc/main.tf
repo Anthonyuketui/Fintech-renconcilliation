@@ -20,7 +20,7 @@ resource "aws_subnet" "private" {
 }
 
 resource "aws_subnet" "public" {
-  count                   = var.enable_nat_gateway ? 2 : 1
+  count                   = 2  # Always create 2 public subnets for RDS requirement
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.${count.index + 10}.0/24"
   availability_zone       = data.aws_availability_zones.available.names[count.index]
