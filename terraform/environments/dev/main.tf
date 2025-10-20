@@ -119,7 +119,7 @@ module "rds" {
   source = "../../modules/rds"
 
   vpc_id                = module.vpc.vpc_id
-  private_subnet_ids    = module.vpc.public_subnet_ids  # Use public subnets in dev
+  private_subnet_ids    = module.vpc.public_subnet_ids  # Use public subnets in dev for cost savings
   ecs_security_group_id = aws_security_group.ecs.id
   
   instance_class        = "db.t3.micro"
@@ -234,9 +234,9 @@ module "eventbridge" {
   cluster_arn          = module.ecs.cluster_arn
   task_definition_arn  = module.ecs.task_definition_arn
   eventbridge_role_arn = module.iam.eventbridge_role_arn
-  subnet_ids           = module.vpc.public_subnet_ids
+  subnet_ids           = module.vpc.public_subnet_ids  # Use public subnets in dev
   security_group_ids   = [aws_security_group.ecs.id]
-  assign_public_ip     = true
+  assign_public_ip     = true  # Need public IP in dev
   tags                = local.common_tags
   
   depends_on = [module.ecs, module.iam]

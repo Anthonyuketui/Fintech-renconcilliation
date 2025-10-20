@@ -15,11 +15,11 @@ resource "aws_security_group" "rds" {
 }
 
 resource "aws_db_subnet_group" "main" {
-  name       = "${var.project_name}-${var.environment}-db-subnet-group"
+  name       = "${var.project_name}-${var.environment}-db-subnets-${var.environment == "dev" ? "public" : "private"}"
   subnet_ids = var.private_subnet_ids
 
   tags = merge(var.tags, {
-    Name = "${var.project_name}-${var.environment}-db-subnet-group"
+    Name = "${var.project_name}-${var.environment}-db-subnets-${var.environment == "dev" ? "public" : "private"}"
   })
 }
 
@@ -46,7 +46,7 @@ resource "aws_db_instance" "postgres" {
   maintenance_window     = "sun:04:00-sun:05:00"
   
   multi_az               = var.multi_az
-  publicly_accessible    = var.environment == "dev"  # Allow public access in dev
+  publicly_accessible    = false
   deletion_protection    = var.environment == "prod"
   
   skip_final_snapshot = var.environment != "prod"
