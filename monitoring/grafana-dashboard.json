@@ -89,7 +89,7 @@
             "thresholds": {
               "steps": [
                 {"color": "green", "value": 0},
-                {"color": "yellow", "value": 200},
+                {"color": "yellow", "value": 100},
                 {"color": "red", "value": 500}
               ]
             }
