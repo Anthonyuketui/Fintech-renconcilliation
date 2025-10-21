@@ -13,7 +13,7 @@ resource "aws_ecs_cluster" "main" {
 
 resource "aws_ecr_repository" "main" {
   name                 = "${var.project_name}-${var.environment}"
-  image_tag_mutability = "IMMUTABLE"
+  image_tag_mutability = var.image_tag_mutability
   force_delete         = true
 
   image_scanning_configuration {

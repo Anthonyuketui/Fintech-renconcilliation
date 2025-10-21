@@ -82,7 +82,7 @@ module "ses" {
 }
 
 resource "aws_security_group" "ecs" {
-  name_prefix = "${local.project_name}-dev-ecs-v2-"
+  name        = "${local.project_name}-dev-ecs-sg"
   vpc_id      = module.vpc.vpc_id
 
   # Restrict outbound traffic to specific ports only
@@ -168,6 +168,7 @@ module "ecs" {
   aws_region              = var.aws_region
   enable_container_insights = false
   enable_image_scanning    = true
+  image_tag_mutability     = "MUTABLE"
   
   environment_variables = [
     {

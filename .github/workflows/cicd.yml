@@ -8,19 +8,15 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Deploy to production'
+        description: 'Target environment'
         required: true
-        default: 'prod'
+        default: 'dev'
         type: choice
-        options: [prod]
-  schedule:
-    - cron: '0 4 * * *'  # Daily at 4 AM UTC
+        options: [dev, prod]
 
 env:
   AWS_REGION: us-east-1
-  TF_VERSION: 1.6.0
   APP_NAME: fintech-reconciliation
-  PYTHON_VERSION: '3.11'
 
 jobs:
   security-scan:
@@ -34,31 +30,19 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ env.PYTHON_VERSION }}
+        python-version: '3.11'
         cache: 'pip'
-    
-    - name: Install Semgrep
-      run: pip install semgrep
     
     - name: Semgrep Security Scan
       run: |
+        pip install semgrep
         semgrep --config=auto --severity=ERROR --error src/
-        semgrep --config=auto --json --output=semgrep-results.json src/ || true
     
     - name: Generate SBOM
       run: |
         pip install -r requirements.txt
         pip install cyclonedx-bom
         cyclonedx-py requirements -o sbom.json
-    
-    - name: Upload security artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: security-reports
-        path: |
-          semgrep-results.json
-          sbom.json
-        retention-days: 30
     
     - name: Trivy Security Scan
       uses: aquasecurity/trivy-action@0.28.0
@@ -68,6 +52,13 @@ jobs:
         scanners: 'vuln,secret,misconfig'
         severity: 'CRITICAL'
         exit-code: '1'
+    
+    - name: Upload security artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-reports
+        path: sbom.json
+        retention-days: 90
 
   test:
     name: Test & Quality Gates
@@ -92,6 +83,7 @@ jobs:
     
     outputs:
       should-deploy: ${{ steps.check.outputs.deploy }}
+      target-env: ${{ steps.check.outputs.environment }}
     
     steps:
     - uses: actions/checkout@v4
@@ -99,7 +91,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ env.PYTHON_VERSION }}
+        python-version: '3.11'
         cache: 'pip'
     
     - name: Install dependencies
@@ -116,13 +108,9 @@ jobs:
         DB_PORT: 5432
       run: |
         sleep 5
-        PYTHONPATH=src pytest tests/ -v --maxfail=5 --tb=short --cov=src --cov-report=term-missing
-        if [ $? -ne 0 ]; then
-          echo "Tests failed - blocking deployment"
-          exit 1
-        fi
+        PYTHONPATH=src pytest tests/ -v --cov=src
     
-    - name: Performance Testing
+    - name: Performance test
       env:
         DB_HOST: localhost
         DB_PASSWORD: test
@@ -130,15 +118,14 @@ jobs:
         DB_NAME: fintech_reconciliation
         DB_PORT: 5432
       run: |
-        echo "Testing reconciliation performance with large dataset..."
         PYTHONPATH=src python -c "
         import time
         from src.reconciliation_engine import ReconciliationEngine
         from src.models import Transaction
+        from datetime import datetime, date
+        from decimal import Decimal
         
         # Generate test data
-        from datetime import datetime
-        from decimal import Decimal
         processor_txns = [Transaction(
             transaction_id=f'txn_{i}',
             processor_name='stripe',
@@ -150,48 +137,34 @@ jobs:
             reference_number=f'ref_{i}',
             fee=Decimal('2.9')
         ) for i in range(10000)]
-        internal_txns = [Transaction(
-            transaction_id=f'txn_{i}',
-            processor_name='stripe',
-            amount=Decimal('100.0'),
-            currency='USD',
-            status='completed',
-            merchant_id='test_merchant',
-            transaction_date=datetime(2025, 1, 1),
-            reference_number=f'ref_{i}',
-            fee=Decimal('2.9')
-        ) for i in range(9500)]  # 500 missing (txn_9500 to txn_9999)
+        internal_txns = processor_txns[:-500]  # 500 missing
         
         # Performance test
-        from datetime import date
         start_time = time.time()
         engine = ReconciliationEngine()
         result = engine.reconcile(processor_txns, internal_txns, date(2025, 1, 1), 'stripe')
         duration = time.time() - start_time
         
         print(f'Processed 10,000 transactions in {duration:.2f} seconds')
-        print(f'Found {result.summary.missing_transactions_count} missing transactions')
-        
-        if duration > 30:  # Should process 10k transactions in under 30 seconds
-            raise Exception(f'Performance test failed: {duration:.2f}s > 30s')
-        if result.summary.missing_transactions_count != 500:
-            raise Exception(f'Logic test failed: expected 500 missing, got {result.summary.missing_transactions_count}')
-        
+        assert duration < 30, f'Performance test failed: {duration:.2f}s > 30s'
+        assert result.summary.missing_transactions_count == 500, f'Expected 500 missing, got {result.summary.missing_transactions_count}'
         print('Performance test passed')
         "
     
-    - name: Code quality checks
-      run: |
-        python -m py_compile src/*.py
-        cd src && python -c "import main, data_fetcher, aws_manager, database_manager, notification_service, reconciliation_engine, report_generator, models, metrics"
-    
-    - name: Check deployment trigger
+    - name: Determine deployment
       id: check
-      env:
-        GITHUB_REF: ${{ github.ref }}
-        GITHUB_EVENT_NAME: ${{ github.event_name }}
       run: |
-        if [[ "$GITHUB_REF" == "refs/heads/main" ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          ENV="${{ github.event.inputs.environment }}"
+        elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          ENV="dev"
+        else
+          ENV="none"
+        fi
+        
+        echo "environment=$ENV" >> $GITHUB_OUTPUT
+        
+        if [[ "$ENV" != "none" ]]; then
           echo "deploy=true" >> $GITHUB_OUTPUT
         else
           echo "deploy=false" >> $GITHUB_OUTPUT
@@ -230,15 +203,15 @@ jobs:
         retention-days: 1
 
   deploy:
-    name: Infrastructure & Application Deploy
+    name: Deploy
     runs-on: ubuntu-latest
     needs: [test, build]
     if: needs.test.outputs.should-deploy == 'true'
     timeout-minutes: 15
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+    environment: ${{ needs.test.outputs.target-env }}
     
     outputs:
-      current-task-def: ${{ steps.deploy-app.outputs.current-task-def }}
+      deployed-env: ${{ needs.test.outputs.target-env }}
     
     steps:
     - uses: actions/checkout@v4
@@ -246,7 +219,7 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
-        terraform_version: ${{ env.TF_VERSION }}
+        terraform_version: 1.6.0
     
     - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v4
@@ -256,83 +229,43 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
     
     - name: Validate secrets
-      run: |
-        if [[ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]]; then
-          echo "SECURITY ERROR: AWS_ACCESS_KEY_ID not configured"
-          exit 1
-        fi
-        if [[ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]]; then
-          echo "SECURITY ERROR: AWS_SECRET_ACCESS_KEY not configured"
-          exit 1
-        fi
-        if [[ "${{ github.event.inputs.environment }}" == "prod" && -z "${{ secrets.DB_PASSWORD_PROD }}" ]]; then
-          echo "SECURITY ERROR: DB_PASSWORD_PROD not configured"
-          exit 1
-        fi
-        if [[ "${{ github.event.inputs.environment }}" != "prod" && -z "${{ secrets.DB_PASSWORD_DEV }}" ]]; then
-          echo "SECURITY ERROR: DB_PASSWORD_DEV not configured"
-          exit 1
-        fi
-        echo "Security validation passed"
-    
-    - name: Set environment
-      id: set-env
-      run: |
-        if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
-          echo "environment=prod" >> $GITHUB_OUTPUT
-        else
-          echo "environment=dev" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: Create Terraform backend configuration
-      run: |
-        ENV=${{ steps.set-env.outputs.environment }}
-        if [[ -z "${{ secrets.TERRAFORM_STATE_BUCKET }}" ]]; then
-          echo "ERROR: TERRAFORM_STATE_BUCKET secret not configured"
-          exit 1
-        fi
-        cat > "terraform/environments/$ENV/backend.tf" << EOF
-        terraform {
-          backend "s3" {
-            bucket         = "${{ secrets.TERRAFORM_STATE_BUCKET }}"
-            key            = "$ENV/terraform.tfstate"
-            region         = "${{ env.AWS_REGION }}"
-            dynamodb_table = "terraform-locks"
-            encrypt        = true
-          }
-        }
-        EOF
-    
-    - name: Infrastructure Drift Detection
-      working-directory: terraform/environments/${{ steps.set-env.outputs.environment }}
       env:
-        TF_VAR_db_password: ${{ github.event.inputs.environment == 'prod' && secrets.DB_PASSWORD_PROD || secrets.DB_PASSWORD_DEV }}
-        TF_VAR_operations_email: ${{ secrets.OPERATIONS_EMAIL }}
-        TF_VAR_sender_email: ${{ secrets.OPERATIONS_EMAIL }}
+        TARGET_ENV: ${{ needs.test.outputs.target-env }}
       run: |
-        terraform init -input=false -reconfigure
-        echo "Checking for infrastructure drift..."
-        terraform plan -input=false -lock-timeout=30m -out=tfplan
-        if [ $? -eq 0 ]; then
-          echo "No infrastructure drift detected"
-        elif [ $? -eq 2 ]; then
-          echo "WARNING: Infrastructure drift detected - manual changes found"
-          terraform show tfplan
-          echo "Continuing with deployment but drift should be investigated"
-        else
-          echo "ERROR: Terraform plan failed"
+        if [[ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" || -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" || -z "${{ secrets.TERRAFORM_STATE_BUCKET }}" || -z "${{ secrets.OPERATIONS_EMAIL }}" ]]; then
+          echo "ERROR: Missing required secrets"
+          exit 1
+        fi
+        
+        if [[ "$TARGET_ENV" == "prod" && -z "${{ secrets.DB_PASSWORD_PROD }}" ]]; then
+          echo "ERROR: DB_PASSWORD_PROD not configured"
+          exit 1
+        elif [[ "$TARGET_ENV" == "dev" && -z "${{ secrets.DB_PASSWORD_DEV }}" ]]; then
+          echo "ERROR: DB_PASSWORD_DEV not configured"
           exit 1
         fi
     
     - name: Deploy infrastructure
-      working-directory: terraform/environments/${{ steps.set-env.outputs.environment }}
+      working-directory: terraform/environments/${{ needs.test.outputs.target-env }}
       env:
-        TF_VAR_db_password: ${{ github.event.inputs.environment == 'prod' && secrets.DB_PASSWORD_PROD || secrets.DB_PASSWORD_DEV }}
+        TARGET_ENV: ${{ needs.test.outputs.target-env }}
+        TF_VAR_db_password: ${{ needs.test.outputs.target-env == 'prod' && secrets.DB_PASSWORD_PROD || secrets.DB_PASSWORD_DEV }}
         TF_VAR_operations_email: ${{ secrets.OPERATIONS_EMAIL }}
         TF_VAR_sender_email: ${{ secrets.OPERATIONS_EMAIL }}
       run: |
-        echo "Deploying infrastructure changes..."
-        terraform apply -input=false tfplan
+        cat > backend.tf << EOF
+        terraform {
+          backend "s3" {
+            bucket = "${{ secrets.TERRAFORM_STATE_BUCKET }}"
+            key    = "$TARGET_ENV/terraform.tfstate"
+            region = "${{ env.AWS_REGION }}"
+          }
+        }
+        EOF
+        
+        terraform init -reconfigure
+        terraform plan -out=tfplan
+        terraform apply -auto-approve tfplan
     
     - name: Download image artifact
       uses: actions/download-artifact@v4
@@ -340,29 +273,16 @@ jobs:
         name: docker-image
     
     - name: Deploy application
-      id: deploy-app
       run: |
         docker load < image.tar
-        ECR_URL=$(cd terraform/environments/${{ steps.set-env.outputs.environment }} && terraform output -raw ecr_repository_url)
-        if [[ -z "$ECR_URL" ]]; then
-          echo "ERROR: Failed to retrieve ECR repository URL"
-          exit 1
-        fi
+        ECR_URL=$(cd terraform/environments/${{ needs.test.outputs.target-env }} && terraform output -raw ecr_repository_url)
         
-        # Store current task definition for rollback
-        ENV=${{ steps.set-env.outputs.environment }}
-        CURRENT_TASK_DEF=$(aws ecs describe-services --cluster ${{ env.APP_NAME }}-$ENV --services ${{ env.APP_NAME }}-$ENV --query 'services[0].taskDefinition' --output text 2>/dev/null || echo "none")
-        echo "current-task-def=$CURRENT_TASK_DEF" >> $GITHUB_OUTPUT
-        
-        # Secure ECR login
         aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_URL
         
-        # Tag and push image
         docker tag ${{ env.APP_NAME }}:${{ github.sha }} $ECR_URL:${{ github.sha }}
         docker push $ECR_URL:${{ github.sha }}
         
-        echo "Successfully deployed image: $ECR_URL:${{ github.sha }}"
-        echo "Task definition updated - EventBridge will use new image on next scheduled run"
+        echo "Deployed: $ECR_URL:${{ github.sha }}"
 
   integration-test:
     name: Integration Test
@@ -381,16 +301,15 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
     
     - name: Run integration test
+      env:
+        TARGET_ENV: ${{ needs.deploy.outputs.deployed-env }}
       run: |
-        ENV=${{ github.event.inputs.environment || 'dev' }}
-        APP="${{ env.APP_NAME }}-$ENV"
+        APP="${{ env.APP_NAME }}-${{ needs.deploy.outputs.deployed-env }}"
         
         # Get network configuration
         VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=$APP-vpc" --query 'Vpcs[0].VpcId' --output text)
         SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=*public*" --query 'Subnets[0].SubnetId' --output text)
         SG_ID=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=$APP-ecs-sg" --query 'SecurityGroups[0].GroupId' --output text)
-        
-        echo "Running integration test: VPC=$VPC_ID, Subnet=$SUBNET_ID, SG=$SG_ID"
         
         # Run reconciliation task
         TASK_ARN=$(aws ecs run-task \

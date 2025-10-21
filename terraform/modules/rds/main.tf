@@ -1,5 +1,5 @@
 resource "aws_security_group" "rds" {
-  name_prefix = "${var.project_name}-${var.environment}-rds-"
+  name_prefix = "${var.project_name}-${var.environment}-rds-v2-"
   vpc_id      = var.vpc_id
 
   ingress {
