@@ -312,7 +312,7 @@ jobs:
       run: |
         terraform init -input=false -reconfigure
         echo "Checking for infrastructure drift..."
-        terraform plan -input=false -lock-timeout=5m -out=tfplan
+        terraform plan -input=false -lock-timeout=30m -out=tfplan
         if [ $? -eq 0 ]; then
           echo "No infrastructure drift detected"
         elif [ $? -eq 2 ]; then
