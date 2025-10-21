@@ -11,7 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Business Metrics
+
 RECONCILIATION_RUNS_TOTAL = Counter(
     'reconciliation_runs_total',
     'Total number of reconciliation runs',
@@ -36,7 +36,7 @@ DISCREPANCY_AMOUNT_TOTAL = Counter(
     ['processor']
 )
 
-# Technical Metrics
+
 RECONCILIATION_DURATION_SECONDS = Histogram(
     'reconciliation_duration_seconds',
     'Time spent on reconciliation',
@@ -70,7 +70,7 @@ DATABASE_OPERATION_DURATION_SECONDS = Histogram(
     buckets=[0.01, 0.05, 0.1, 0.5, 1, 5, 10]
 )
 
-# System Metrics
+
 MEMORY_USAGE_BYTES = Gauge(
     'memory_usage_bytes',
     'Current memory usage in bytes'
@@ -82,17 +82,15 @@ ACTIVE_CONNECTIONS = Gauge(
 )
 
 class MetricsCollector:
-    """Centralized metrics collection for the reconciliation system."""
     
     def __init__(self, port: int = 8000):
         self.port = port
         self.server_started = False
     
     def start_metrics_server(self):
-        """Start Prometheus metrics server."""
         if not self.server_started:
             try:
-                # Validate port range for security
+
                 if not (8000 <= self.port <= 9999):
                     raise ValueError(f"Invalid port {self.port}. Must be between 8000-9999")
                     
@@ -103,39 +101,32 @@ class MetricsCollector:
                 logger.error(f"Failed to start metrics server: {e}")
     
     def record_reconciliation_run(self, processor: str, status: str, duration: float):
-        """Record reconciliation run metrics."""
         RECONCILIATION_RUNS_TOTAL.labels(processor=processor, status=status).inc()
         RECONCILIATION_DURATION_SECONDS.labels(processor=processor).observe(duration)
     
     def record_transactions_processed(self, processor: str, source: str, count: int):
-        """Record transaction processing metrics."""
         TRANSACTIONS_PROCESSED_TOTAL.labels(processor=processor, source=source).inc(count)
     
     def record_missing_transactions(self, processor: str, count: int, amount: float):
-        """Record missing transaction metrics."""
         MISSING_TRANSACTIONS_TOTAL.labels(processor=processor).inc(count)
         DISCREPANCY_AMOUNT_TOTAL.labels(processor=processor).inc(amount)
     
     def record_api_request(self, processor: str, endpoint: str, status: str, duration: float):
-        """Record API request metrics."""
         API_REQUESTS_TOTAL.labels(processor=processor, endpoint=endpoint, status=status).inc()
         API_REQUEST_DURATION_SECONDS.labels(processor=processor, endpoint=endpoint).observe(duration)
     
     def record_database_operation(self, operation: str, status: str, duration: float):
-        """Record database operation metrics."""
         DATABASE_OPERATIONS_TOTAL.labels(operation=operation, status=status).inc()
         DATABASE_OPERATION_DURATION_SECONDS.labels(operation=operation).observe(duration)
     
     def update_system_metrics(self, memory_bytes: int, db_connections: int):
-        """Update system resource metrics."""
         MEMORY_USAGE_BYTES.set(memory_bytes)
         ACTIVE_CONNECTIONS.set(db_connections)
 
-# Global metrics collector instance
+
 metrics = MetricsCollector()
 
 def track_duration(metric_name: str, labels: Dict[str, str] = None):
-    """Decorator to track function execution duration."""
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -175,16 +166,15 @@ def track_duration(metric_name: str, labels: Dict[str, str] = None):
     return decorator
 
 def get_system_metrics() -> Dict[str, Any]:
-    """Get current system metrics for monitoring."""
     try:
         import psutil
         import os
         
-        # Only allow metrics collection for current process
+
         current_pid = os.getpid()
         process = psutil.Process(current_pid)
         
-        # Validate process belongs to current user
+
         if process.pid != current_pid:
             raise ValueError("Process validation failed")
             

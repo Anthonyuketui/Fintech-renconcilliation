@@ -1,12 +1,5 @@
 """
-database_manager.py
-
-## Production PostgreSQL Manager
-
-This module provides the **DatabaseManager** class, handling all data persistence
-for the reconciliation system. Key features include **full transaction safety**
-via context managers, support for **UUIDs**, efficient **bulk insertion** using
-`psycopg2.extras.execute_values`, and complete **audit logging**.
+Production PostgreSQL manager with transaction safety and audit logging.
 """
 
 import json
@@ -32,7 +25,6 @@ class DatabaseManager:
     """PostgreSQL manager with UUID support and data validation."""
 
     def __init__(self, settings: Settings = None):
-        """Initializes database configuration from provided Settings or environment variables."""
         if settings and getattr(settings, "DB_URL", None):
             self.db_url = settings.DB_URL
         else:
@@ -51,17 +43,12 @@ class DatabaseManager:
                 dbname=self.dbname,
             )
         
-        # Auto-initialize database schema if tables don't exist
+
         self._initialize_database()
 
     @contextmanager
     def get_connection(self):
-        """
-        Provides a transactionally safe database connection.
-
-        The connection is automatically rolled back on any exception and closed
-        when exiting the context, ensuring data integrity.
-        """
+        """Provides a transactionally safe database connection."""
         conn = None
         if not self.db_url or "None" in self.db_url:
             logger.warning(
@@ -71,7 +58,7 @@ class DatabaseManager:
             return
         try:
             conn = psycopg2.connect(self.db_url)
-            conn.autocommit = False  # Enforce explicit transaction control
+            conn.autocommit = False
             yield conn
         except psycopg2.Error as exc:
             if conn:
@@ -91,20 +78,10 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
-    # =========================================================================
-    # CORE INTERFACE METHODS
-    # =========================================================================
+
 
     def create_reconciliation_run(self, date: date, processor: str) -> Optional[str]:
-        """
-        Creates or restarts a reconciliation run record with 'running' status.
-
-        Uses **UPSERT (ON CONFLICT)** logic for idempotency, ensuring the process
-        can be safely re-executed for the same date/processor. If an old run is
-        restarted, its associated missing transactions are first deleted.
-
-        Returns the run_id (UUID).
-        """
+        """Creates or restarts a reconciliation run record with 'running' status."""
         run_uuid = str(uuid.uuid4())
         with self.get_connection() as conn:
             if conn is None:
@@ -113,7 +90,7 @@ class DatabaseManager:
                 with conn.cursor() as cursor:
                     cursor.execute("BEGIN")
 
-                    # 1. Check for existing run (for restart/cleanup logic)
+
                     cursor.execute(
                         """
                         SELECT id FROM reconciliation_runs
@@ -125,7 +102,7 @@ class DatabaseManager:
 
                     if existing_run:
                         existing_run_id = existing_run[0]
-                        # Cleanup: Delete old missing transactions before restart
+
                         cursor.execute(
                             """
                             DELETE FROM missing_transactions
@@ -140,7 +117,7 @@ class DatabaseManager:
                                 deleted_count=cursor.rowcount,
                             )
 
-                    # 2. Perform UPSERT to create new run or update existing one to 'running'
+
                     cursor.execute(
                         """
                         INSERT INTO reconciliation_runs (
@@ -181,7 +158,7 @@ class DatabaseManager:
 
                     run_id = run_result[0]
 
-                    # 3. Log Audit
+
                     self._log_audit_event(
                         cursor,
                         action="reconciliation_started_or_restarted",
@@ -200,12 +177,7 @@ class DatabaseManager:
     def store_reconciliation_result(
         self, run_id: str, result: ReconciliationResult
     ) -> None:
-        """
-        Stores all reconciliation metrics and records all missing transactions.
-
-        This is a single, atomic transaction that ensures missing transactions
-        are stored before the run status is updated to 'completed'.
-        """
+        """Stores all reconciliation metrics and records all missing transactions."""
         with self.get_connection() as conn:
             if conn is None:
                 return
@@ -213,7 +185,7 @@ class DatabaseManager:
                 with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     cursor.execute("BEGIN")
 
-                    # 1. Bulk insert missing transactions (high performance)
+
                     if result.missing_transactions_details:
                         self._bulk_insert_missing_transactions(
                             cursor, run_id, result.missing_transactions_details
@@ -224,7 +196,7 @@ class DatabaseManager:
                             run_id=run_id,
                         )
 
-                    # 2. Update run record with final metrics and status
+
                     cursor.execute(
                         """
                         UPDATE reconciliation_runs SET
@@ -248,10 +220,10 @@ class DatabaseManager:
                         ),
                     )
 
-                    # 3. Run final data quality checks
+
                     self._perform_data_quality_checks(cursor, run_id, result)
 
-                    # 4. Log Audit
+
                     self._log_audit_event(
                         cursor,
                         action="reconciliation_metrics_recorded",
@@ -348,18 +320,11 @@ class DatabaseManager:
             except Exception:
                 raise
 
-    # =========================================================================
-    # INTERNAL HELPER METHODS
-    # =========================================================================
+
 
     def _bulk_insert_missing_transactions(
         self, cursor, run_id: str, transactions: List[Transaction]
     ):
-        """
-        Efficiently inserts missing transactions using psycopg2's execute_values.
-
-        Transactions are validated before insertion.
-        """
         validated_transactions = []
         for txn in transactions:
             if self._validate_transaction(txn):
@@ -404,7 +369,6 @@ class DatabaseManager:
         )
 
     def _validate_transaction(self, txn: Transaction) -> bool:
-        """Applies essential data validation checks against business rules."""
         try:
             if not txn.transaction_id or not txn.transaction_id.strip():
                 logger.warning("Invalid transaction: empty transaction_id")
@@ -454,12 +418,7 @@ class DatabaseManager:
     def _perform_data_quality_checks(
         self, cursor, run_id: str, result: ReconciliationResult
     ):
-        """
-        Performs post-insertion data quality checks to ensure metrics consistency
-        between the application and the database. The results are stored in the
-        `data_quality_checks` table.
-        """
-        # Validate run_id exists and belongs to current session
+
         cursor.execute(
             "SELECT id FROM reconciliation_runs WHERE id = %s",
             (run_id,)
@@ -468,7 +427,7 @@ class DatabaseManager:
             raise ValueError(f"Invalid run_id: {run_id}")
         checks = []
 
-        # Recalculate metrics from the actual data in the database
+
         cursor.execute(
             """
             SELECT COUNT(*)::integer as txn_count,
@@ -479,15 +438,15 @@ class DatabaseManager:
             (run_id,),
         )
 
-        # Assumes RealDictCursor is used as defined in store_reconciliation_result
+
         row = cursor.fetchone()
         actual_count = row["txn_count"]
         actual_amount = row["total_amount"]
 
-        # Check 1: Count Consistency
+
         count_check_passed = actual_count == result.summary.missing_transactions_count
 
-        # Check 2: Amount Consistency (with tolerance for float/decimal conversion safety)
+
         amount_check_passed = (
             abs(float(actual_amount) - float(result.summary.total_discrepancy_amount))
             <= 0.01
@@ -522,7 +481,7 @@ class DatabaseManager:
             ]
         )
 
-        # Check 3: High Discrepancy Alert
+
         high_discrepancy = result.summary.total_discrepancy_amount > Decimal("10000")
 
         checks.append(
@@ -540,7 +499,7 @@ class DatabaseManager:
             }
         )
 
-        # Persist all check results
+
         for check in checks:
             cursor.execute(
                 """
@@ -560,7 +519,6 @@ class DatabaseManager:
             )
 
     def _calculate_success_rate(self, result: ReconciliationResult) -> float:
-        """Calculates the reconciliation success rate based on transaction counts."""
         if result.summary.processor_transactions == 0:
             return 100.0
         return (
@@ -580,7 +538,6 @@ class DatabaseManager:
         old_values: Dict[str, Any] = None,
         new_values: Dict[str, Any] = None,
     ):
-        """Logs an audit event to the `audit_log` table."""
         cursor.execute(
             """
             INSERT INTO audit_log (
@@ -601,7 +558,6 @@ class DatabaseManager:
         )
 
     def _initialize_database(self):
-        """Initialize database schema if tables don't exist."""
         try:
             with self.get_connection() as conn:
                 if conn is None:
@@ -617,8 +573,7 @@ class DatabaseManager:
                     
                     if not table_exists:
                         logger.info("Database tables not found, initializing schema...")
-                        # Read and execute setup.sql
-                        # Try multiple possible locations with path validation
+
                         base_dir = os.path.dirname(os.path.dirname(__file__))
                         possible_paths = [
                             '/app/setup.sql',  # Docker container
@@ -628,7 +583,6 @@ class DatabaseManager:
                         
                         setup_sql_path = None
                         for path in possible_paths:
-                            # Validate path to prevent traversal
                             normalized_path = os.path.normpath(path)
                             if os.path.exists(normalized_path) and not '..' in normalized_path:
                                 setup_sql_path = normalized_path
@@ -637,7 +591,7 @@ class DatabaseManager:
                         if setup_sql_path:
                             with open(setup_sql_path, 'r') as f:
                                 setup_sql = f.read()
-                            # Execute the entire SQL script at once
+
                             if setup_sql.strip():
                                 cursor.execute(setup_sql)
                                 conn.commit()
@@ -652,15 +606,14 @@ class DatabaseManager:
             logger.error("Failed to initialize database schema", error=str(e))
 
     def health_check(self) -> bool:
-        """Performs a database connectivity and write check."""
         try:
             with self.get_connection() as conn:
                 if conn is None:
                     return False
                 with conn.cursor() as cursor:
-                    # Simple connectivity check
+
                     cursor.execute("SELECT 1")
-                    # Write check to system_health table
+
                     cursor.execute(
                         """
                         INSERT INTO system_health (
@@ -686,7 +639,6 @@ class DatabaseManager:
     def get_reconciliation_history(
         self, processor: str, days: int = 30
     ) -> List[Dict[str, Any]]:
-        """Retrieves reconciliation run history for a given processor for monitoring and trends."""
         with self.get_connection() as conn:
             if conn is None:
                 return []
@@ -700,5 +652,5 @@ class DatabaseManager:
                 """,
                     (processor, f"{days} days"),
                 )
-                # Convert RealDictRow objects to standard dictionaries before returning
+
                 return [dict(row) for row in cursor.fetchall()]

@@ -33,7 +33,7 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
     
-    - name: Semgrep Security Scan
+    - name: SAST Security Scan
       run: |
         pip install semgrep
         semgrep --config=auto --severity=ERROR --error src/
@@ -44,7 +44,7 @@ jobs:
         pip install cyclonedx-bom
         cyclonedx-py requirements -o sbom.json
     
-    - name: Trivy Security Scan
+    - name: Infrastructure Security Scan
       uses: aquasecurity/trivy-action@0.28.0
       with:
         scan-type: 'fs'
@@ -53,10 +53,10 @@ jobs:
         severity: 'CRITICAL'
         exit-code: '1'
     
-    - name: Upload security artifacts
+    - name: Upload SBOM
       uses: actions/upload-artifact@v4
       with:
-        name: security-reports
+        name: sbom-report
         path: sbom.json
         retention-days: 90
 
@@ -118,38 +118,7 @@ jobs:
         DB_NAME: fintech_reconciliation
         DB_PORT: 5432
       run: |
-        PYTHONPATH=src python -c "
-        import time
-        from src.reconciliation_engine import ReconciliationEngine
-        from src.models import Transaction
-        from datetime import datetime, date
-        from decimal import Decimal
-        
-        # Generate test data
-        processor_txns = [Transaction(
-            transaction_id=f'txn_{i}',
-            processor_name='stripe',
-            amount=Decimal('100.0'),
-            currency='USD',
-            status='completed',
-            merchant_id='test_merchant',
-            transaction_date=datetime(2025, 1, 1),
-            reference_number=f'ref_{i}',
-            fee=Decimal('2.9')
-        ) for i in range(10000)]
-        internal_txns = processor_txns[:-500]  # 500 missing
-        
-        # Performance test
-        start_time = time.time()
-        engine = ReconciliationEngine()
-        result = engine.reconcile(processor_txns, internal_txns, date(2025, 1, 1), 'stripe')
-        duration = time.time() - start_time
-        
-        print(f'Processed 10,000 transactions in {duration:.2f} seconds')
-        assert duration < 30, f'Performance test failed: {duration:.2f}s > 30s'
-        assert result.summary.missing_transactions_count == 500, f'Expected 500 missing, got {result.summary.missing_transactions_count}'
-        print('Performance test passed')
-        "
+        PYTHONPATH=src python scripts/performance-test.py
     
     - name: Determine deployment
       id: check
@@ -161,14 +130,8 @@ jobs:
         else
           ENV="none"
         fi
-        
         echo "environment=$ENV" >> $GITHUB_OUTPUT
-        
-        if [[ "$ENV" != "none" ]]; then
-          echo "deploy=true" >> $GITHUB_OUTPUT
-        else
-          echo "deploy=false" >> $GITHUB_OUTPUT
-        fi
+        echo "deploy=$([[ $ENV != "none" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
 
   build:
     name: Build & Package
@@ -176,16 +139,22 @@ jobs:
     needs: [security-scan, test]
     if: needs.test.outputs.should-deploy == 'true'
     timeout-minutes: 10
-    
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Build Docker image
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    - name: Build and push Docker image
       run: |
         docker build -t ${{ env.APP_NAME }}:${{ github.sha }} .
-        docker save ${{ env.APP_NAME }}:${{ github.sha }} > image.tar
+        ECR_URL=$(aws ecr describe-repositories --repository-names fintech-reconciliation-${{ needs.test.outputs.target-env }} --query 'repositories[0].repositoryUri' --output text)
+        aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_URL
+        docker tag ${{ env.APP_NAME }}:${{ github.sha }} $ECR_URL:${{ github.sha }}
+        docker push $ECR_URL:${{ github.sha }}
     
-    - name: Container security scan
+    - name: Container Security Scan
       uses: aquasecurity/trivy-action@0.28.0
       with:
         scan-type: 'image'
@@ -194,13 +163,6 @@ jobs:
         severity: 'CRITICAL'
         exit-code: '1'
         trivyignores: '.trivyignore'
-    
-    - name: Upload image artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: docker-image
-        path: image.tar
-        retention-days: 1
 
   deploy:
     name: Deploy
@@ -228,61 +190,18 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
     
-    - name: Validate secrets
-      env:
-        TARGET_ENV: ${{ needs.test.outputs.target-env }}
-      run: |
-        if [[ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" || -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" || -z "${{ secrets.TERRAFORM_STATE_BUCKET }}" || -z "${{ secrets.OPERATIONS_EMAIL }}" ]]; then
-          echo "ERROR: Missing required secrets"
-          exit 1
-        fi
-        
-        if [[ "$TARGET_ENV" == "prod" && -z "${{ secrets.DB_PASSWORD_PROD }}" ]]; then
-          echo "ERROR: DB_PASSWORD_PROD not configured"
-          exit 1
-        elif [[ "$TARGET_ENV" == "dev" && -z "${{ secrets.DB_PASSWORD_DEV }}" ]]; then
-          echo "ERROR: DB_PASSWORD_DEV not configured"
-          exit 1
-        fi
+
     
     - name: Deploy infrastructure
-      working-directory: terraform/environments/${{ needs.test.outputs.target-env }}
       env:
-        TARGET_ENV: ${{ needs.test.outputs.target-env }}
         TF_VAR_db_password: ${{ needs.test.outputs.target-env == 'prod' && secrets.DB_PASSWORD_PROD || secrets.DB_PASSWORD_DEV }}
         TF_VAR_operations_email: ${{ secrets.OPERATIONS_EMAIL }}
         TF_VAR_sender_email: ${{ secrets.OPERATIONS_EMAIL }}
       run: |
-        cat > backend.tf << EOF
-        terraform {
-          backend "s3" {
-            bucket = "${{ secrets.TERRAFORM_STATE_BUCKET }}"
-            key    = "$TARGET_ENV/terraform.tfstate"
-            region = "${{ env.AWS_REGION }}"
-          }
-        }
-        EOF
-        
-        terraform init -reconfigure
-        terraform plan -out=tfplan
-        terraform apply -auto-approve tfplan
+        chmod +x scripts/deploy-terraform.sh
+        ./scripts/deploy-terraform.sh ${{ needs.test.outputs.target-env }} ${{ secrets.TERRAFORM_STATE_BUCKET }} ${{ env.AWS_REGION }}
     
-    - name: Download image artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: docker-image
-    
-    - name: Deploy application
-      run: |
-        docker load < image.tar
-        ECR_URL=$(cd terraform/environments/${{ needs.test.outputs.target-env }} && terraform output -raw ecr_repository_url)
-        
-        aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_URL
-        
-        docker tag ${{ env.APP_NAME }}:${{ github.sha }} $ECR_URL:${{ github.sha }}
-        docker push $ECR_URL:${{ github.sha }}
-        
-        echo "Deployed: $ECR_URL:${{ github.sha }}"
+
 
   integration-test:
     name: Integration Test
@@ -301,32 +220,6 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
     
     - name: Run integration test
-      env:
-        TARGET_ENV: ${{ needs.deploy.outputs.deployed-env }}
       run: |
-        APP="${{ env.APP_NAME }}-${{ needs.deploy.outputs.deployed-env }}"
-        
-        # Get network configuration
-        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=$APP-vpc" --query 'Vpcs[0].VpcId' --output text)
-        SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=*public*" --query 'Subnets[0].SubnetId' --output text)
-        SG_ID=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=$APP-ecs-sg" --query 'SecurityGroups[0].GroupId' --output text)
-        
-        # Run reconciliation task
-        TASK_ARN=$(aws ecs run-task \
-          --cluster $APP \
-          --task-definition $APP \
-          --launch-type FARGATE \
-          --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID],securityGroups=[$SG_ID],assignPublicIp=ENABLED}" \
-          --overrides '{"containerOverrides":[{"name":"'$APP'","command":["python","src/main.py","--processors","stripe","--date","'$(date +%Y-%m-%d)'"]}]}' \
-          --query 'tasks[0].taskArn' --output text)
-        
-        # Wait and check result
-        aws ecs wait tasks-stopped --cluster $APP --tasks $TASK_ARN
-        EXIT_CODE=$(aws ecs describe-tasks --cluster $APP --tasks $TASK_ARN --query 'tasks[0].containers[0].exitCode' --output text)
-        
-        if [ "$EXIT_CODE" = "0" ]; then
-          echo "✅ Integration test passed"
-        else
-          echo "❌ Integration test failed with exit code: $EXIT_CODE"
-          exit 1
-        fi
+        chmod +x scripts/test-integration.sh
+        ./scripts/test-integration.sh

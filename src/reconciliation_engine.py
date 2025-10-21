@@ -26,10 +26,7 @@ class ReconciliationEngine:
 
     @staticmethod
     def _build_index(transactions: List[Transaction]) -> Dict[str, Transaction]:
-        """
-        Build transaction index for O(1) lookups.
-        Handles duplicate IDs by keeping the first occurrence.
-        """
+        """Build transaction index for O(1) lookups."""
         index: Dict[str, Transaction] = {}
         for t in transactions:
             if t.transaction_id in index:
@@ -61,24 +58,24 @@ class ReconciliationEngine:
             ReconciliationResult with summary and missing transaction details
         """
 
-        # Build transaction indexes for O(1) lookup performance
+
         proc_index = self._build_index(processor_transactions)
         int_index = self._build_index(internal_transactions)
         unique_proc_txns = list(proc_index.values())
 
         missing_details: List[Transaction] = []
 
-        # Identify missing transactions (in processor but not internal)
+
         for tid, p_txn in proc_index.items():
             if tid not in int_index:
                 missing_details.append(p_txn)
                 logger.debug("Missing transaction found: %s", tid)
 
-        # Calculate financial totals
+
         total_discrepancy: Decimal = sum(t.amount for t in missing_details)
         total_volume: Decimal = sum(t.amount for t in unique_proc_txns)
 
-        # Build summary
+
         summary = ReconciliationSummary(
             reconciliation_date=run_date,
             processor=processor,
@@ -89,7 +86,7 @@ class ReconciliationEngine:
             total_volume_processed=total_volume,
         )
 
-        # Build result object
+
         result = ReconciliationResult(
             reconciliation_date=run_date,
             processor=processor,

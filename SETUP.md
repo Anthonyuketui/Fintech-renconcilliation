@@ -14,17 +14,7 @@ aws dynamodb create-table \
   --billing-mode PAY_PER_REQUEST
 ```
 
-## 2. Configure Terraform Backend
-
-```bash
-# Copy and configure backend for each environment
-cp terraform/environments/dev/backend.tf.example terraform/environments/dev/backend.tf
-cp terraform/environments/prod/backend.tf.example terraform/environments/prod/backend.tf
-
-# Edit backend.tf files and replace YOUR_BUCKET_NAME_HERE with your actual bucket name
-```
-
-## 3. Configure GitHub Secrets
+## 2. Configure GitHub Secrets
 
 Add these secrets to your GitHub repository:
 
@@ -35,9 +25,22 @@ Add these secrets to your GitHub repository:
 - `OPERATIONS_EMAIL` - Your email for notifications
 - `TERRAFORM_STATE_BUCKET` - S3 bucket for Terraform state
 
-## 4. Deploy
+## 3. Deploy
 
 Push to main branch or run workflow manually.
+
+## Local Development
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Start local services
+docker-compose up -d
+
+# Run reconciliation
+docker-compose run --rm app python src/main.py --processors stripe
+```
 
 ## Cleanup
 

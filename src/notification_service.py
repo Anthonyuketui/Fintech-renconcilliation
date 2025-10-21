@@ -54,14 +54,12 @@ class NotificationService:
 
 
     def _send_email(self, message: MIMEMultipart) -> bool:
-        """Send email via SES or SMTP."""
         if self.use_ses:
             return self._send_email_ses(message)
         else:
             return self._send_email_smtp(message)
     
     def _send_email_ses(self, message: MIMEMultipart) -> bool:
-        """Send email via AWS SES."""
         if not self.sender_email:
             logger.warning("Sender email not configured for SES, skipping email send")
             return False
@@ -88,12 +86,11 @@ class NotificationService:
             return False
 
     def _send_email_smtp(self, message: MIMEMultipart) -> bool:
-        """Send email via SMTP with SSL or STARTTLS."""
         if not self.email_user or not self.email_password:
             logger.warning("Email credentials not configured, skipping email send")
             return False
 
-        # SMTP server configurations with fallbacks
+
         smtp_configs = [
             ("smtp.gmail.com", 465),
             (self.smtp_server, self.smtp_port),
@@ -143,7 +140,6 @@ class NotificationService:
         return False
 
     def _send_slack(self, payload: dict) -> bool:
-        """Send Slack notification via webhook."""
         if not self.slack_webhook_url:
             logger.warning(
                 "Slack webhook URL not configured, skipping Slack notification."
@@ -166,10 +162,9 @@ class NotificationService:
         report_url: Optional[str] = None,
         report_attachment: Optional[str] = None,
     ) -> bool:
-        """Send daily reconciliation summary notification."""
         severity = self._determine_severity(reconciliation_result)
         try:
-            # Generate presigned URL if S3 key provided
+
             download_url = None
             if report_url and report_url.startswith('s3://'):
                 download_url = self._generate_presigned_url(report_url)
@@ -198,7 +193,6 @@ class NotificationService:
     def send_failure_alert(
         self, processor: str, date: str, run_id: str, error_message: str
     ) -> bool:
-        """Send critical failure alert for reconciliation errors."""
         try:
             message = MIMEMultipart()
             message["From"] = self.sender_email if self.use_ses else self.email_user
@@ -230,7 +224,6 @@ class NotificationService:
 
 
     def _determine_severity(self, result: ReconciliationResult) -> str:
-        """Determine alert severity based on discrepancy thresholds."""
         summary = result.summary
 
         total_tx = summary.processor_transactions or 1
@@ -240,7 +233,7 @@ class NotificationService:
         discrepancy = max(missing_pct, amount_pct)
         amount_abs = float(summary.total_discrepancy_amount)
 
-        # Adaptive thresholds based on transaction volume
+
         if total_tx < 10_000:
             low, medium, high, critical = 0.02, 0.05, 0.10, 0.20
         elif total_tx < 100_000:
@@ -277,7 +270,6 @@ class NotificationService:
         report_url: Optional[str] = None,
         report_attachment: Optional[str] = None,
     ) -> MIMEMultipart:
-        """Create email message with summary and attachments."""
         message = MIMEMultipart()
         message["From"] = self.sender_email if self.use_ses else self.email_user
         message["To"] = self.operations_email
@@ -311,7 +303,6 @@ class NotificationService:
         severity: str,
         report_url: Optional[str] = None,
     ) -> str:
-        """Generate HTML email body for reconciliation summary."""
         color_map = {
             "critical": "#dc3545",
             "high": "#fd7e14",
@@ -332,7 +323,7 @@ class NotificationService:
             else ""
         )
 
-        # Escape data to prevent XSS
+
         processor_safe = html.escape(str(result.processor).upper())
         date_safe = html.escape(str(reconciliation_date))
         severity_safe = html.escape(severity.upper())
@@ -363,7 +354,6 @@ class NotificationService:
     def _generate_email_recommendations(
         self, result: ReconciliationResult, severity: str
     ) -> str:
-        """Generate severity-based action recommendations."""
         recs = {
             "critical": [
                 "🚨 Immediate action required",
@@ -384,8 +374,7 @@ class NotificationService:
         )
 
     def _attach_report(self, message: MIMEMultipart, file_path: str):
-        """Attach CSV report file to email."""
-        # Validate file path for security
+
         if not self._is_safe_path(file_path):
             logger.error("Unsafe file path detected", file_path=file_path)
             return
@@ -403,14 +392,13 @@ class NotificationService:
             logger.warning("Failed to attach report", file_path=file_path, error=str(e))
 
     def _generate_presigned_url(self, s3_url: str) -> Optional[str]:
-        """Generate presigned URL for S3 object download."""
         try:
-            # Parse S3 URL: s3://bucket/key
+
             if not s3_url.startswith('s3://'):
                 logger.debug("URL is not S3 format, returning as-is", url=s3_url)
                 return s3_url
                 
-            s3_path = s3_url[5:]  # Remove 's3://'
+            s3_path = s3_url[5:]
             if '/' not in s3_path:
                 logger.error("Invalid S3 URL format", s3_url=s3_url)
                 return None
@@ -418,13 +406,13 @@ class NotificationService:
             bucket, key = s3_path.split('/', 1)
             logger.debug("Parsing S3 URL", bucket=bucket, key=key)
             
-            # Use same region as environment
+
             region = os.getenv("AWS_REGION", "us-east-1")
             logger.debug("Creating S3 client", region=region)
             
             s3_client = boto3.client('s3', region_name=region)
             
-            # Test if object exists first
+
             try:
                 s3_client.head_object(Bucket=bucket, Key=key)
                 logger.debug("S3 object exists", bucket=bucket, key=key)
@@ -439,7 +427,7 @@ class NotificationService:
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
                 Params={'Bucket': bucket, 'Key': key},
-                ExpiresIn=86400  # 24 hours
+                ExpiresIn=86400
             )
             
             logger.info("Generated presigned URL for S3 download", 
@@ -453,15 +441,14 @@ class NotificationService:
             return None
 
     def _is_safe_path(self, file_path: str) -> bool:
-        """Validate file path to prevent directory traversal."""
         try:
             import os
-            # Normalize path and check for traversal attempts
+
             normalized = os.path.normpath(file_path)
             if ".." in normalized or normalized.startswith("/"):
                 return False
                 
-            # Only allow files in safe directories
+
             safe_patterns = ["reports", "local_reports", "Sample_Output", "tmp"]
             return any(pattern in normalized for pattern in safe_patterns)
         except Exception:

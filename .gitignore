@@ -176,3 +176,28 @@ validate-system.py
 
 # Downloaded tools
 trivy.zip
+
+# Additional security files
+.env.local
+.env.production
+.env.*.local
+aws-credentials
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Database dumps
+*.sql
+*.dump
+*.backup
+
+# Sensitive configuration
+config/secrets.yaml
+config/production.yaml
+secrets/
+
+# CI/CD artifacts
+.github/secrets/
+build-artifacts/
+deployment-logs/

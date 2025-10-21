@@ -50,6 +50,8 @@ Payment APIs → Data Fetcher → Reconciliation Engine → Report Generator →
 PostgreSQL ← Database Manager ← Audit Logger ← Notification Service ← Operations Team
 ```
 
+![Data Flow Architecture](Sample_Output/images/dataflow.png)
+
 ### AWS Infrastructure
 - **ECS Fargate** - Serverless container orchestration
 - **RDS PostgreSQL** - ACID-compliant financial data storage
@@ -97,6 +99,36 @@ PostgreSQL ← Database Manager ← Audit Logger ← Notification Service ← Op
 - **Boto3** - AWS SDK integration
 - **Structlog** - Structured JSON logging
 - **Pytest** - Testing framework
+
+## Architectural Decisions
+
+### ECS Fargate vs Lambda
+**Choice**: ECS Fargate  
+**Reason**: Reconciliation jobs can run 5-15 minutes processing large datasets. Lambda's 15-minute limit and cold start overhead make it unsuitable for batch processing.
+
+### ECS vs EKS
+**Choice**: ECS Fargate  
+**Reason**: Simpler operations for batch jobs. EKS adds Kubernetes complexity without benefits for scheduled tasks. ECS integrates natively with EventBridge.
+
+### Pydantic vs Dataclasses
+**Choice**: Pydantic  
+**Reason**: Financial data requires strict validation. Pydantic provides runtime type checking, data serialization, and validation that prevents data corruption.
+
+### PostgreSQL vs DynamoDB
+**Choice**: PostgreSQL  
+**Reason**: Financial reconciliation needs ACID transactions, complex queries, and audit trails. DynamoDB lacks transaction guarantees required for financial compliance.
+
+### Semgrep vs Bandit
+**Choice**: Semgrep  
+**Reason**: Enterprise-grade SAST with lower false positives. Covers more vulnerability types and provides better CI/CD integration than Bandit.
+
+### EventBridge vs Cron Jobs
+**Choice**: EventBridge  
+**Reason**: Cloud-native scheduling with built-in retry logic, failure handling, and ECS integration. Eliminates need for persistent compute resources running cron.
+
+### Terraform vs CloudFormation
+**Choice**: Terraform  
+**Reason**: Multi-cloud portability, superior state management, and mature ecosystem. HCL syntax is more readable than CloudFormation YAML/JSON.
 
 ## Test Coverage
 

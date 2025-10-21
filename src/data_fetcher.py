@@ -36,10 +36,7 @@ class DataFetcher:
     def _make_request_with_retry(
         self, url: str, timeout: int = 30
     ) -> requests.Response:
-        """
-        HTTP request with exponential backoff retry logic.
-        Improves reliability for network failures and API timeouts.
-        """
+        """HTTP request with exponential backoff retry logic."""
         last_exception = None
         for attempt in range(self.max_retries):
             try:
@@ -82,19 +79,16 @@ class DataFetcher:
     def fetch_processor_data(
         self, run_date: Optional[date] = None
     ) -> List[Transaction]:
-        """
-        Fetch transaction data from payment processor.
-        Uses pagination with safety limits to prevent infinite loops.
-        """
+        """Fetch transaction data from payment processor."""
         if run_date is None:
             run_date = date.today()
 
         page_size = int(os.getenv("PROCESSOR_API_PAGE_SIZE", 50))
         transactions: List[Transaction] = []
         page = 1
-        max_pages = 100  # Pagination safety limit
+        max_pages = 100
         start_time = time.time()
-        max_duration = 300  # Pagination timeout in seconds
+        max_duration = 300
 
         while page <= max_pages:
             if time.time() - start_time > max_duration:
@@ -168,10 +162,7 @@ class DataFetcher:
         processor_txns: Optional[List[Transaction]] = None,
         run_date: Optional[date] = None,
     ) -> List[Transaction]:
-        """
-        Fetch internal transaction records.
-        Simulates realistic capture rate (80-95%) to create reconciliation scenarios.
-        """
+        """Fetch internal transaction records."""
         if run_date is None:
             run_date = date.today()
 
@@ -184,7 +175,6 @@ class DataFetcher:
             url = f"{self.internal_api_base_url}/posts"
             self._make_request_with_retry(url)
 
-            # Simulate realistic internal capture rate (80-95%)
             capture_rate = random.uniform(0.80, 0.95)  # nosec B311
             num_to_capture = int(len(processor_txns) * capture_rate)
 
@@ -238,15 +228,12 @@ class DataFetcher:
         return transactions
 
     def __enter__(self) -> 'DataFetcher':
-        """Context manager entry."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit with session cleanup."""
         self.close()
 
     def close(self) -> None:
-        """Close the requests session."""
         if hasattr(self, 'session') and self.session:
             try:
                 self.session.close()

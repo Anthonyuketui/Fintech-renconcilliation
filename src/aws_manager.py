@@ -1,12 +1,5 @@
 """
-aws_manager.py
-
-## AWS S3 Storage Manager with Local Fallback
-
-This module provides the AWSManager class for handling report persistence.
-It prioritizes secure, permanent storage in AWS S3 but implements a reliable
-local file system fallback if S3 credentials, configuration,
-or access fails, ensuring the reconciliation process never stalls due to storage issues.
+AWS S3 storage manager with local fallback for report persistence.
 """
 
 from __future__ import annotations
@@ -20,10 +13,10 @@ from typing import Optional
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
-# Use an explicit logger for production traceability
+
 logger = logging.getLogger(__name__)
 
-# Constants for S3 error handling
+
 PERMANENT_S3_ERRORS = frozenset({
     "NoSuchBucket", "AccessDenied", "InvalidAccessKeyId",
     "SignatureDoesNotMatch", "403", "404"
@@ -39,7 +32,6 @@ class AWSManager:
     """
 
     def __init__(self, bucket_name: Optional[str] = None, region: Optional[str] = None) -> None:
-        """Initializes S3 configuration and client, validating access immediately."""
         self.bucket_name = bucket_name or os.getenv("AWS_S3_BUCKET_NAME")
         self.region = region or os.getenv("AWS_REGION", "us-east-1")
         self.s3_client = None
@@ -48,7 +40,6 @@ class AWSManager:
         self._initialize_s3_client()
 
     def _initialize_s3_client(self) -> None:
-        """Initializes and validates the S3 client, setting _s3_available."""
         if not self.bucket_name:
             logger.info("AWS S3 bucket name not configured; using local fallback.")
             return
@@ -67,11 +58,6 @@ class AWSManager:
             self._s3_available = False
 
     def _validate_credentials(self) -> None:
-        """
-        Validates AWS credentials and bucket access during initialization.
-
-        Sets `self._s3_available` flag.
-        """
         if not self.s3_client or not self.bucket_name:
             self._s3_available = False
             return
@@ -134,7 +120,6 @@ class AWSManager:
             return self._handle_s3_upload_exception(exc, file_path)
 
     def _handle_s3_upload_exception(self, exc: Exception, file_path: Path) -> str:
-        """Handles exceptions during S3 upload and applies fallback logic."""
         if isinstance(exc, NoCredentialsError):
             logger.error("AWS credentials missing during upload; falling back to local.")
             self._s3_available = False
@@ -156,11 +141,10 @@ class AWSManager:
             raise
 
     def _use_local_storage(self, file_path: Path) -> str:
-        """Returns local file path with the mandatory file:// URI scheme."""
-        # Normalize and validate path to prevent traversal
+
         normalized_path = os.path.normpath(str(file_path))
         if ".." in normalized_path or normalized_path.startswith("/"):
-            # Only allow relative paths in safe directories
+
             safe_name = os.path.basename(normalized_path)
             reports_dir = Path("./reports")
             reports_dir.mkdir(exist_ok=True)
@@ -172,7 +156,6 @@ class AWSManager:
         return f"file://{resolved_path.as_posix()}"
 
     def is_s3_path(self, path: str) -> bool:
-        """Checks if a path is an S3 key (True) or a local file path (False)."""
         return not path.startswith("file://")
 
     def generate_presigned_url(self, key: str, expires_in: int = 3600) -> Optional[str]:
@@ -198,7 +181,6 @@ class AWSManager:
             return None
 
     def _get_content_type(self, file_path: Path) -> str:
-        """Determines the appropriate Content-Type for the S3 upload."""
         suffix = file_path.suffix.lower()
         content_types = {
             ".csv": "text/csv",
@@ -210,7 +192,6 @@ class AWSManager:
         return content_types.get(suffix, "application/octet-stream")
 
     def health_check(self) -> bool:
-        """Checks S3 connectivity. Returns True if available or using local fallback."""
         if not self.s3_client or not self.bucket_name:
             logger.info("S3 health check: using local fallback mode.")
             return True

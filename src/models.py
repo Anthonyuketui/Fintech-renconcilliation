@@ -1,11 +1,5 @@
 """
-models.py
-
-## FinTech Transaction Reconciliation System Data Models
-
-This module defines all core data models for the FinTech Transaction Reconciliation System.
-Models are built using Pydantic for data validation, type safety, and serialization.
-These models form the backbone for all business logic, API contracts, and financial reporting.
+Core data models for the FinTech Transaction Reconciliation System.
 """
 
 from datetime import date, datetime
@@ -17,17 +11,10 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# =============================================================================
-# 1. System Configuration Model
-# =============================================================================
+
 class Settings(BaseSettings):
-    """
-    Application configuration loaded from environment variables or .env files.
 
-    This model centralizes all settings for database, API endpoints, AWS, and reporting.
-    """
 
-    # Database Configuration
     DB_HOST: str = Field(default="localhost", description="Database host")
     DB_PORT: int = Field(default=5432, description="Database port")
     DB_NAME: str = Field(default="fintech_reconciliation", description="Database name")
@@ -37,7 +24,7 @@ class Settings(BaseSettings):
         None, description="Database connection URL (overrides individual params)"
     )
 
-    # AWS Configuration
+
     AWS_ACCESS_KEY_ID: Optional[str] = Field(None, description="AWS access key ID")
     AWS_SECRET_ACCESS_KEY: Optional[str] = Field(
         None, description="AWS secret access key"
@@ -48,7 +35,7 @@ class Settings(BaseSettings):
     )
     AWS_REGION: str = Field(default="us-east-1", description="AWS region")
 
-    # Email Configuration
+
     SMTP_SERVER: Optional[str] = Field(None, description="SMTP server address")
     SMTP_PORT: int = Field(default=587, description="SMTP server port")
     EMAIL_USER: Optional[str] = Field(None, description="Email username")
@@ -59,7 +46,7 @@ class Settings(BaseSettings):
         None, description="Operations team email for notifications"
     )
 
-    # API Configuration
+
     PROCESSOR_API_BASE_URL: str = Field(
         default="https://dummyjson.com", description="Base URL for processor API"
     )
@@ -68,7 +55,7 @@ class Settings(BaseSettings):
         description="Base URL for internal API",
     )
 
-    # Application Configuration
+
     REPORT_OUTPUT_DIR: Path = Field(
         default=Path("reports"), description="Directory for report outputs"
     )
@@ -82,13 +69,10 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        """
-        Construct database URL from individual components or return DB_URL if provided.
-        """
         if self.DB_URL:
             return self.DB_URL
         
-        # Validate required fields
+
         if not self.DB_USER or not self.DB_HOST or not self.DB_NAME:
             raise ValueError("Database configuration incomplete: DB_USER, DB_HOST, and DB_NAME are required")
             
@@ -96,22 +80,11 @@ class Settings(BaseSettings):
 
     @property
     def s3_bucket_name(self) -> Optional[str]:
-        """
-        Return S3 bucket name, preferring AWS_S3_BUCKET_NAME over AWS_BUCKET_NAME.
-        """
         return self.AWS_S3_BUCKET_NAME or self.AWS_BUCKET_NAME
 
 
-# =============================================================================
-# 2. Core Transaction Data Model
-# =============================================================================
-class Transaction(BaseModel):
-    """
-    Represents a single financial transaction.
 
-    All monetary fields use Decimal for precision. This model is used for both
-    processor and internal transactions, ensuring a unified schema for reconciliation.
-    """
+class Transaction(BaseModel):
 
     transaction_id: str = Field(..., description="Unique transaction identifier")
     processor_name: str = Field(..., description="Name of the payment processor")
@@ -128,15 +101,8 @@ class Transaction(BaseModel):
     fee: Decimal = Field(..., description="Transaction fee charged by processor")
 
 
-# =============================================================================
-# 3. Reconciliation Models
-# =============================================================================
-class ReconciliationSummary(BaseModel):
-    """
-    Summary statistics from a reconciliation process.
 
-    Captures high-level metrics for reporting and audit.
-    """
+class ReconciliationSummary(BaseModel):
 
     reconciliation_date: date = Field(..., description="Date of reconciliation run")
     processor: str = Field(..., description="Payment processor name")
@@ -158,11 +124,6 @@ class ReconciliationSummary(BaseModel):
 
 
 class ReconciliationResult(BaseModel):
-    """
-    Detailed output of a reconciliation run.
-
-    Includes summary metrics and a list of missing transactions for further analysis.
-    """
 
     reconciliation_date: date = Field(..., description="Date of reconciliation run")
     processor: str = Field(..., description="Payment processor name")
@@ -173,30 +134,16 @@ class ReconciliationResult(BaseModel):
     )
 
 
-# =============================================================================
-# 4. Report Contracts
-# =============================================================================
-class ReportBundle(BaseModel):
-    """
-    Encapsulates all generated reports for a reconciliation run.
 
-    Used for packaging CSV, JSON, and executive summaries for archival and distribution.
-    """
+class ReportBundle(BaseModel):
 
     csv_path: Path = Field(..., description="Path to detailed CSV report")
     json_path: Path = Field(..., description="Path to JSON report")
     summary_text: str = Field(..., description="Executive summary text")
 
 
-# =============================================================================
-# 5. Database Models (Audit & Compliance)
-# =============================================================================
-class ReconciliationRun(BaseModel):
-    """
-    Represents a reconciliation run record in the database.
 
-    Used for audit logging, compliance, and historical analysis.
-    """
+class ReconciliationRun(BaseModel):
 
     id: str = Field(..., description="Unique run identifier (UUID)")
     run_date: date = Field(..., description="Date of reconciliation run")
@@ -213,11 +160,6 @@ class ReconciliationRun(BaseModel):
 
 
 class AuditLog(BaseModel):
-    """
-    Represents an audit log entry for database operations.
-
-    Ensures traceability and compliance for all changes to reconciliation data.
-    """
 
     id: str = Field(..., description="Unique audit log identifier (UUID)")
     action: str = Field(

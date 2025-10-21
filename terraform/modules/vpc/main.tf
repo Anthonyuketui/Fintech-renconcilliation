@@ -102,10 +102,10 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private[var.enable_nat_gateway ? count.index : 0].id
 }
 
-# Associate S3 endpoint with private route tables
+# Associate S3 endpoint with private route tables (prod only)
 resource "aws_vpc_endpoint_route_table_association" "s3" {
-  count           = length(aws_route_table.private)
-  vpc_endpoint_id = aws_vpc_endpoint.s3.id
+  count           = var.environment == "prod" ? length(aws_route_table.private) : 0
+  vpc_endpoint_id = aws_vpc_endpoint.s3[0].id
   route_table_id  = aws_route_table.private[count.index].id
 }
 
@@ -113,13 +113,14 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# VPC Endpoints for ECR (required for ECS without NAT Gateway)
+# VPC Endpoints (only for production - dev uses public subnets with internet access)
 resource "aws_vpc_endpoint" "ecr_dkr" {
+  count               = var.environment == "prod" ? 1 : 0
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.ecr.dkr"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = aws_subnet.private[*].id
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
   private_dns_enabled = true
 
   tags = merge(var.tags, {
@@ -128,11 +129,12 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
 }
 
 resource "aws_vpc_endpoint" "ecr_api" {
+  count               = var.environment == "prod" ? 1 : 0
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.ecr.api"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = aws_subnet.private[*].id
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
   private_dns_enabled = true
 
   tags = merge(var.tags, {
@@ -141,6 +143,7 @@ resource "aws_vpc_endpoint" "ecr_api" {
 }
 
 resource "aws_vpc_endpoint" "s3" {
+  count             = var.environment == "prod" ? 1 : 0
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.${data.aws_region.current.name}.s3"
   vpc_endpoint_type = "Gateway"
@@ -152,11 +155,12 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 resource "aws_vpc_endpoint" "logs" {
+  count               = var.environment == "prod" ? 1 : 0
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${data.aws_region.current.name}.logs"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = aws_subnet.private[*].id
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
   private_dns_enabled = true
 
   tags = merge(var.tags, {
@@ -165,6 +169,7 @@ resource "aws_vpc_endpoint" "logs" {
 }
 
 resource "aws_security_group" "vpc_endpoints" {
+  count       = var.environment == "prod" ? 1 : 0
   name_prefix = "${var.project_name}-${var.environment}-vpc-endpoints-"
   vpc_id      = aws_vpc.main.id
 

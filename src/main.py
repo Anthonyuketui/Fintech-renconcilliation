@@ -58,17 +58,7 @@ class ReconciliationSystem:
     """
 
     def __init__(self) -> None:
-        """
-        Initialize service components and create report directory.
-        
-        Sets up all required service instances:
-        - AWSManager for S3 operations with local fallback
-        - DatabaseManager for PostgreSQL audit trails
-        - NotificationService for email/Slack alerts
-        - ReportGenerator for CSV/JSON report creation
-        - ReconciliationEngine for transaction matching
-        - Metrics server for Prometheus monitoring
-        """
+        """Initialize service components and create report directory."""
         SETTINGS.REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         
         # Start metrics server with error handling
@@ -103,7 +93,6 @@ class ReconciliationSystem:
         s3_uploaded = False
 
         try:
-            # Create audit record with error handling
             try:
                 run_id = self.database_manager.create_reconciliation_run(
                     target_date, processor_name
@@ -124,7 +113,7 @@ class ReconciliationSystem:
                 sys.exit(1)  # Exit with error code for CI/CD detection
             logger.debug("Database run record created", run_id=run_id)
 
-            # Fetch transaction data
+
             fetcher = DataFetcher(
                 processor_api_base_url=SETTINGS.PROCESSOR_API_BASE_URL,
                 internal_api_base_url=SETTINGS.INTERNAL_API_BASE_URL,
@@ -141,18 +130,18 @@ class ReconciliationSystem:
                 internal_count=len(internal_txns),
             )
 
-            # Record transaction metrics
+
             metrics.record_transactions_processed(processor_name, 'processor', len(proc_txns))
             metrics.record_transactions_processed(processor_name, 'internal', len(internal_txns))
             
-            # Perform reconciliation
+
             start_time = time.time()
             result = self.reconciliation_engine.reconcile(
                 proc_txns, internal_txns, target_date, processor_name
             )
             duration = time.time() - start_time
             
-            # Record business metrics
+
             metrics.record_reconciliation_run(processor_name, 'success', duration)
             metrics.record_missing_transactions(
                 processor_name,
@@ -160,11 +149,11 @@ class ReconciliationSystem:
                 float(result.summary.total_discrepancy_amount)
             )
 
-            # Store results
+
             self.database_manager.store_reconciliation_result(run_id, result)
             logger.debug("Reconciliation metrics and details stored in DB.")
 
-            # Generate reports
+
             csv_path, summary_text, json_path = (
                 self.report_generator.generate_all_reports(result, local_report_dir)
             )
@@ -174,7 +163,7 @@ class ReconciliationSystem:
                 json_path=str(json_path.as_posix()),
             )
 
-            # Upload to S3
+
             s3_location = s3_key = None
             try:
                 s3_location = self.aws_manager.upload_report(csv_path)
@@ -182,7 +171,7 @@ class ReconciliationSystem:
 
                 if s3_uploaded:
                     self.database_manager.update_s3_report_key(run_id, s3_location)
-                    # Store S3 key for notification service
+
                     s3_key = f"s3://{self.aws_manager.bucket_name}/{s3_location}"
                     logger.info("Report uploaded to S3", s3_key=s3_location)
                 else:
@@ -200,7 +189,7 @@ class ReconciliationSystem:
                 )
                 s3_uploaded = False
 
-            # Send notifications
+
             try:
                 if s3_uploaded and s3_key:
                     notification_sent = (
@@ -260,7 +249,7 @@ class ReconciliationSystem:
             return False
 
         finally:
-            # Clean up local files after successful S3 upload
+
             cleanup_enabled = os.getenv('CLEANUP_LOCAL_REPORTS', 'false').lower() == 'true'
             logger.debug("Cleanup check", cleanup_enabled=cleanup_enabled, s3_uploaded=s3_uploaded)
             
