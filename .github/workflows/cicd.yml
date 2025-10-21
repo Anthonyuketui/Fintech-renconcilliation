@@ -312,7 +312,7 @@ jobs:
       run: |
         terraform init -input=false -reconfigure
         echo "Checking for infrastructure drift..."
-        terraform plan -input=false -lock-timeout=10m -out=tfplan
+        terraform plan -input=false -lock-timeout=5m -out=tfplan
         if [ $? -eq 0 ]; then
           echo "No infrastructure drift detected"
         elif [ $? -eq 2 ]; then
@@ -332,7 +332,7 @@ jobs:
         TF_VAR_sender_email: ${{ secrets.OPERATIONS_EMAIL }}
       run: |
         echo "Deploying infrastructure changes..."
-        terraform apply -input=false -lock-timeout=10m tfplan
+        terraform apply -input=false tfplan
     
     - name: Download image artifact
       uses: actions/download-artifact@v4
@@ -383,53 +383,31 @@ jobs:
     - name: Run integration test
       run: |
         ENV=${{ github.event.inputs.environment || 'dev' }}
-        CLUSTER_NAME="${{ env.APP_NAME }}-$ENV"
-        TASK_DEF="${{ env.APP_NAME }}-$ENV"
+        APP="${{ env.APP_NAME }}-$ENV"
         
-        # Get VPC configuration for task
-        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=${{ env.APP_NAME }}-$ENV-vpc" --query 'Vpcs[0].VpcId' --output text)
-        echo "VPC ID: $VPC_ID"
-        
+        # Get network configuration
+        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=$APP-vpc" --query 'Vpcs[0].VpcId' --output text)
         SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=*public*" --query 'Subnets[0].SubnetId' --output text)
-        echo "Subnet ID: $SUBNET_ID"
+        SG_ID=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=$APP-ecs-sg" --query 'SecurityGroups[0].GroupId' --output text)
         
-        SG_ID=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=${{ env.APP_NAME }}-$ENV-ecs-sg" --query 'SecurityGroups[0].GroupId' --output text)
-        echo "Security Group ID: $SG_ID"
+        echo "Running integration test: VPC=$VPC_ID, Subnet=$SUBNET_ID, SG=$SG_ID"
         
-        if [[ "$SG_ID" == "None" || -z "$SG_ID" ]]; then
-          echo "Failed to find security group, trying alternative name pattern..."
-          SG_ID=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[?contains(GroupName, `ecs`)].GroupId | [0]' --output text)
-          echo "Alternative Security Group ID: $SG_ID"
-        fi
-        
-        echo "Running integration test task..."
+        # Run reconciliation task
         TASK_ARN=$(aws ecs run-task \
-          --cluster $CLUSTER_NAME \
-          --task-definition $TASK_DEF \
+          --cluster $APP \
+          --task-definition $APP \
           --launch-type FARGATE \
           --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID],securityGroups=[$SG_ID],assignPublicIp=ENABLED}" \
-          --overrides '{"containerOverrides":[{"name":"'$TASK_DEF'","command":["python","src/main.py","--processors","stripe","--date","'$(date +%Y-%m-%d)'"]}]}' \
+          --overrides '{"containerOverrides":[{"name":"'$APP'","command":["python","src/main.py","--processors","stripe","--date","'$(date +%Y-%m-%d)'"]}]}' \
           --query 'tasks[0].taskArn' --output text)
         
-        echo "Integration test task: $TASK_ARN"
-        
-        # Wait for task completion
-        aws ecs wait tasks-stopped --cluster $CLUSTER_NAME --tasks $TASK_ARN
-        
-        # Check task exit code
-        EXIT_CODE=$(aws ecs describe-tasks --cluster $CLUSTER_NAME --tasks $TASK_ARN --query 'tasks[0].containers[0].exitCode' --output text)
+        # Wait and check result
+        aws ecs wait tasks-stopped --cluster $APP --tasks $TASK_ARN
+        EXIT_CODE=$(aws ecs describe-tasks --cluster $APP --tasks $TASK_ARN --query 'tasks[0].containers[0].exitCode' --output text)
         
         if [ "$EXIT_CODE" = "0" ]; then
           echo "✅ Integration test passed"
         else
           echo "❌ Integration test failed with exit code: $EXIT_CODE"
-          
-          # Get task logs for debugging
-          LOG_GROUP="/ecs/$TASK_DEF"
-          LOG_STREAM=$(aws logs describe-log-streams --log-group-name $LOG_GROUP --order-by LastEventTime --descending --max-items 1 --query 'logStreams[0].logStreamName' --output text)
-          
-          echo "Task logs:"
-          aws logs get-log-events --log-group-name $LOG_GROUP --log-stream-name $LOG_STREAM --query 'events[].message' --output text
-          
           exit 1
         fi
