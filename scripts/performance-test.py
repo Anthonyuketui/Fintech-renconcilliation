@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
+import sys
+import os
 import time
-from src.reconciliation_engine import ReconciliationEngine
-from src.models import Transaction
 from datetime import datetime, date
 from decimal import Decimal
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from reconciliation_engine import ReconciliationEngine
+from models import Transaction
 
 # Generate test data
 processor_txns = [Transaction(
