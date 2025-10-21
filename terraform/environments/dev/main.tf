@@ -82,7 +82,7 @@ module "ses" {
 }
 
 resource "aws_security_group" "ecs" {
-  name_prefix = "${local.project_name}-dev-ecs-"
+  name_prefix = "${local.project_name}-dev-ecs-v2-"
   vpc_id      = module.vpc.vpc_id
 
   # Restrict outbound traffic to specific ports only
